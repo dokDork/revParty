@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Directory Listing</title>
+</head>
+<body>
+  <h1>File disponibili</h1>
+  <ul id="file-list"></ul>
+
+  <script>
+    fetch('https://api.github.com/repos/dokdork/dokdork.github.io/contents/soloemapuoaccedere')
+      .then(response => response.json())
+      .then(data => {
+        const list = document.getElementById('file-list');
+        data.forEach(file => {
+          const li = document.createElement('li');
+          const a = document.createElement('a');
+          a.href = file.download_url;
+          a.textContent = file.name;
+          li.appendChild(a);
+          list.appendChild(li);
+        });
+      });
+  </script>
+</body>
+</html>
