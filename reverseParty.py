@@ -1232,6 +1232,12 @@ def step7_convert_trojan_to_exe():
     info(f"EXE: {exe} -> {exeto}")
     shutil.copy(exe, exeto)
 
+    # 7i. Delete TROJANNAME
+    try:
+       trojan_ps1= os.path.join(OUT_DIR, TROJANNAME)
+       os.remove(trojan_ps1)
+    except Exception:
+       pass
 
 # ==============================================================================
 # STEP 8 — ISO CREATION
@@ -1297,7 +1303,10 @@ def step8_iso_creation():
        warn(f"Could not create iso: {ISONAME}.")    
     info(f"ISO created: {iso_path}") 
     # Delete iso_appo folder
-    shutil.rmtree(iso_dir)
+    try:
+       shutil.rmtree(iso_dir)
+    except Exception:
+       pass
     
     print()
     print(f"  {GREEN_DARK}{'─' * 64}{RESET}")
