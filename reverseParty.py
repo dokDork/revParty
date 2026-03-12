@@ -350,9 +350,12 @@ def obfuscate_ps_commands(content: str, ps_cmd_file: str) -> str:
     for cmd in commands:
         if cmd.startswith('.') or cmd.startswith(':') or cmd.startswith('('):
             continue
-
+        
+        # Commands
+        # can NOT starts with:  . : ( $ lettere numeri _ " '
+        # can NOT ends with: lettera numero _ ' "
         pattern = re.compile(
-            r'(?<![.\:\(\$A-Za-z0-9_])' + re.escape(cmd) + r'(?![A-Za-z0-9_])',
+            r'(?<![.\:\(\$A-Za-z0-9_\'"])' + re.escape(cmd) + r'(?![A-Za-z0-9_\'"])',
             re.IGNORECASE
         )
 
