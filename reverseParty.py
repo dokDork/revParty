@@ -908,6 +908,7 @@ def step4_convert_stager_to_exe():
     exeto = os.path.join(OUT_DIR, EXESTAGER)
     shutil.copy(exe, exeto)
 
+
 # ==============================================================================
 # STEP 5 — ZIP CREATION (LAUNCHER + STAGER EXE)
 # ==============================================================================
@@ -959,6 +960,13 @@ def step5_create_zip():
             f"  {RED_DARK}ZIP will NOT be available. Continuing...{RESET}"
         )
         return
+
+    # Delete EXENAME
+    try:
+       exe_name= os.path.join(OUT_DIR, EXENAME)
+       os.remove(exe_name)
+    except Exception:
+       pass 
 
     print()
     print(f"  {GREEN_DARK}{'─' * 64}{RESET}")
@@ -1302,11 +1310,19 @@ def step8_iso_creation():
     except Exception:
        warn(f"Could not create iso: {ISONAME}.")    
     info(f"ISO created: {iso_path}") 
+
     # Delete iso_appo folder
     try:
        shutil.rmtree(iso_dir)
     except Exception:
        pass
+
+    # Delete EXENAME
+    try:
+       exe_name= os.path.join(OUT_DIR, EXENAME)
+       os.remove(exe_name)
+    except Exception:
+       pass 
     
     print()
     print(f"  {GREEN_DARK}{'─' * 64}{RESET}")
@@ -1562,7 +1578,12 @@ def step10_create_zip():
         )
         return
 
- 
+    # Delete EXENAME
+    try:
+       exe_name= os.path.join(OUT_DIR, EXENAME)
+       os.remove(exe_name)
+    except Exception:
+       pass 
     
 
 # ==============================================================================
