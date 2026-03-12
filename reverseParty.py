@@ -1296,7 +1296,9 @@ def step8_iso_creation():
     except Exception:
        warn(f"Could not create iso: {ISONAME}.")    
     info(f"ISO created: {iso_path}") 
-
+    # Delete iso_appo folder
+    shutil.rmtree(iso_dir)
+    
     print()
     print(f"  {GREEN_DARK}{'─' * 64}{RESET}")
     print(f"  {GREEN_DARK}  DEPLOYMENT REMINDERS:{RESET}")
