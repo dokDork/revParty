@@ -5,7 +5,7 @@ import base64
 #  CREDENZIALI - modificare qui username e password
 # ============================================================
 FTP_USER = "usrftp"
-FTP_PASS = "1971Camilla"
+FTP_PASS = "myPassword"
 DEBUG = False   # False = niente output di debug
 
 CONTROL_PORT      = 21

