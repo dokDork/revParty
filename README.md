@@ -1,4 +1,8 @@
 # revParty
+[![License](https://img.shields.io/badge/license-MIT-_red.svg)](https://opensource.org/licenses/MIT)  
+<img src="https://github.com/dokDork/revParty/raw/main/images/revParty.png" width="250" height="250">  
+
+## Description
 It is an advanced tool capable of creating Backdoors and Trojans for Windows systems, for educational purposes only.
 The tool must obviously be used only with the approval of the owner of the machine on which the Backdoors and Trojans will be run.
 
@@ -13,3 +17,5 @@ The main features of the tool are:
     - ask to download a file: the file's body will contain the command the attacker wants to execute on the target machine. To make things a little more obscure, the command could be encoded in base64, and the encoding could be broken by adding a few characters to the alphanumeric sequence.
     - the reverse shell could then execute the command and send the response to the attacker, uploading a file whose body is nothing more than the base64 encoding of the response.
   - **FTP reverse shell with sandbox analysis**: like the previous reverse shell, but when it starts, it analyzes whether it has been activated in a sandbox. If so, it waits before activating.
+
+  
