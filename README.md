@@ -57,9 +57,9 @@ The variabiles to be defined are the follow:
 |-----------|--------------------------------------|---------------|
 | `LHOST`      | IP Public which the listener is listening | `10.10.10.10`|
 | `LPORT`      | Portort on which the listener is listening | `21`|
-| `ATTACKER_URL`      |  Host from which stager (STAGERNAME) download second stage (SECONDNAME) | `https://raw.githubusercontent.com/test/test.github.io/main/download`|
-| `TROJAN_URL`      | Host from which trojan download stager (STAGERNAME) and front end file (e.g. windows update - TROJAN-FE) | `https://raw.githubusercontent.com/test/test.github.io/main/download`|
-
+| `ATTACKER_URL`      |  Host from which stager (STAGERNAME) download second stage (SECONDNAME) | `https://raw.githubusercontent.com/test/download`|
+| `TROJAN_URL`      | Host from which trojan download stager (STAGERNAME) and front end file (e.g. windows update - TROJAN-FE) | `https://raw.githubusercontent.com/test/download`|
+|   |  | |
 | `SECONDNAME`      | Name of second stage (PS1) | `10.10.10.10`|
 | `STAGERNAME`      | Name of stager (PS1) that calls the second stage via the web | `second.txt`|
 | `TROJANNAME`      | Name of trojan (PS1) that calls the stager that calls the second stage via the web + if all goes well, calls the FE file | `stager.ps1`|
