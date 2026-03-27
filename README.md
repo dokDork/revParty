@@ -1,6 +1,6 @@
 # revParty
 [![License](https://img.shields.io/badge/license-MIT-_red.svg)](https://opensource.org/licenses/MIT)  
-<img src="https://github.com/dokDork/revParty/raw/main/images/revParty.png" width="500" height="500">  
+<img src="https://github.com/dokDork/revParty/raw/main/images/revParty.png" width="500">  
 
 ## Description
 It is an advanced tool capable of creating Backdoors and Trojans for Windows systems, for educational purposes only.
