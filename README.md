@@ -43,10 +43,10 @@ Enable-PSRemoting
  ```
 python3 reverseParty.py
  ``` 
-<img src="https://github.com/dokDork/revParty/raw/main/images/01.png">
+<img src="https://github.com/dokDork/revParty/raw/main/images/01.png" width="500">
 
 This is the result of the elaboration process:
-<img src="https://github.com/dokDork/revParty/raw/main/images/02.png">
+<img src="https://github.com/dokDork/revParty/raw/main/images/02.png" width="500">
 
   
 ## Tool parameters
