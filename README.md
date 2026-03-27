@@ -43,37 +43,42 @@ Enable-PSRemoting
  ```
 python3 reverseParty.py
  ``` 
-<img src="https://github.com/dokDork/revParty/raw/main/images/revParty.png">
+<img src="https://github.com/dokDork/revParty/raw/main/images/01.png">
 
 This is the result of the elaboration process:
-<img src="https://github.com/dokDork/revParty/raw/main/images/revParty.png">
-
-Once selected the PHASE, scripts will be generated using tmux as terminal.
-At this point you can select a specific SUB-PHASE using tmux commands:  
-**(CTRL + b) w**  
-<img src="https://github.com/dokDork/red-team-penetration-test-script/raw/main/images/03.png">
-
-once the SUB-PHASE has been selected you will be able to view the commands that have been pre-compiled to analyse the SUB-PHASE. At this point it is possible to selecet and execute a specific command just pressing ENTER:
-<img src="https://github.com/dokDork/red-team-penetration-test-script/raw/main/images/04.png">
-
-When you need to change penetration test PHASE and return to main manu, you need to close the tmux session. To implement this action you need to use the tmux shortcut:  
-**(CTRL + b) :kill-session**  
-or, if you configure tmux as reported in the Installation section, you can use the shortcut:
-**(CTRL + b) (CTRL + n)**  
-
-<img src="https://github.com/dokDork/red-team-penetration-test-script/raw/main/images/05.png">
+<img src="https://github.com/dokDork/revParty/raw/main/images/02.png">
 
   
-## Command-line parameters
-```
-./siteSniper.sh <interface> <target url>
-```
+## Tool parameters
+All parameters are passed by means of python script variables.
+The variabiles to be defined are the follow:
 
-| Parameter | Description                          | Example       |
+| Variable | Description                          | Example       |
 |-----------|--------------------------------------|---------------|
-| `interface`      | network interface through which the target is reached | `eth0`, `wlan0`, `tun0`, ... |
-| `target url`      | Target URL you need to test          | `http://www.example.com`          |
+| `LHOST`      | IP Public which the listener is listening | `10.10.10.10`|
+| `LPORT`      | Portort on which the listener is listening | `21`|
+| `ATTACKER_URL`      |  Host from which stager (STAGERNAME) download second stage (SECONDNAME) | `https://raw.githubusercontent.com/test/test.github.io/main/download`|
+| `TROJAN_URL`      | Host from which trojan download stager (STAGERNAME) and front end file (e.g. windows update - TROJAN-FE) | `https://raw.githubusercontent.com/test/test.github.io/main/download`|
 
+| `SECONDNAME`      | Name of second stage (PS1) | `10.10.10.10`|
+| `STAGERNAME`      | Name of stager (PS1) that calls the second stage via the web | `second.txt`|
+| `TROJANNAME`      | Name of trojan (PS1) that calls the stager that calls the second stage via the web + if all goes well, calls the FE file | `stager.ps1`|
+| `TROJAN_FE`      | Name of windows update to use as the Trojan's FE (other files are fine) | `installer.ps1`|
+| `LAUNCHERNAME`      | Name of launcher (file trusted by Windows) that calls any .exe file to bypass SmartScreen | `launcher.bat`|
+
+| `EXENAME`      | name of the .exe file to be called by the launcher  | `ps2pdf.exe`|
+| `ICONNAME`      | Name of icon to inject into executables to make them appear more trustworthy | `sicurezza.ico`|
+| `EXESECONDNAME`      | name to give to the compiled second stage (EXE)  | `01.second.exe`|
+| `EXESTAGER`      | name to give to the compiled stager (EXE)  | `02.stager.exe`|
+| `EXETROJAN`      | name to give to the Trojan (EXE) compiled  | `03.trojan.exe`|
+
+| `ZIPSECONDNAME`      | Name of zip which contains launcher + secondStage.exe | `04.LAUNCHER-SECOND.zip`|
+| `ZIPNAME`      | Name of zip which contains launcher + stager.exe (which calls secondStage via the web) | `05.LAUNCHER-STAGER.zip`|
+| `ISONAME`      | Name of iso which contains launcher + trojan (which calls stager, which calls secondStage via the web + if all goes well, also calls the FE file) | `06.LAUCHER-TROJAN.iso`|
+
+| `WIN_IP`      | IP to connect to Windows Machine in order to perform the ISO to EXE conversion operation  | `192.168.1.10`|
+| `WIN_USER`      | User to connect to Windows Machine in order to perform the ISO to EXE conversion operation  | `myUSer`|
+| `WIN_PASS`      | Pass to connect to Windows Machine in order to perform the ISO to EXE conversion operation  | `myPass`|
   
 ## How to install it on Kali Linux (or Debian distribution)
 It's very simple  
