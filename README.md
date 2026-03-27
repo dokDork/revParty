@@ -65,17 +65,17 @@ The variabiles to be defined are the follow:
 | `TROJANNAME`      | Name of trojan (PS1) that calls the stager that calls the second stage via the web + if all goes well, calls the FE file | `stager.ps1`|
 | `TROJAN_FE`      | Name of windows update to use as the Trojan's FE (other files are fine) | `installer.ps1`|
 | `LAUNCHERNAME`      | Name of launcher (file trusted by Windows) that calls any .exe file to bypass SmartScreen | `launcher.bat`|
-
+|   |  | |
 | `EXENAME`      | name of the .exe file to be called by the launcher  | `ps2pdf.exe`|
 | `ICONNAME`      | Name of icon to inject into executables to make them appear more trustworthy | `sicurezza.ico`|
 | `EXESECONDNAME`      | name to give to the compiled second stage (EXE)  | `01.second.exe`|
 | `EXESTAGER`      | name to give to the compiled stager (EXE)  | `02.stager.exe`|
 | `EXETROJAN`      | name to give to the Trojan (EXE) compiled  | `03.trojan.exe`|
-
+|   |  | |
 | `ZIPSECONDNAME`      | Name of zip which contains launcher + secondStage.exe | `04.LAUNCHER-SECOND.zip`|
 | `ZIPNAME`      | Name of zip which contains launcher + stager.exe (which calls secondStage via the web) | `05.LAUNCHER-STAGER.zip`|
 | `ISONAME`      | Name of iso which contains launcher + trojan (which calls stager, which calls secondStage via the web + if all goes well, also calls the FE file) | `06.LAUCHER-TROJAN.iso`|
-
+|   |  | |
 | `WIN_IP`      | IP to connect to Windows Machine in order to perform the ISO to EXE conversion operation  | `192.168.1.10`|
 | `WIN_USER`      | User to connect to Windows Machine in order to perform the ISO to EXE conversion operation  | `myUSer`|
 | `WIN_PASS`      | Pass to connect to Windows Machine in order to perform the ISO to EXE conversion operation  | `myPass`|
