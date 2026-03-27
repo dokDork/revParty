@@ -12,4 +12,4 @@ The main features of the tool are:
     - Authenticate: To make the action more credible;
     - ask to download a file: the file's body will contain the command the attacker wants to execute on the target machine. To make things a little more obscure, the command could be encoded in base64, and the encoding could be broken by adding a few characters to the alphanumeric sequence.
     - the reverse shell could then execute the command and send the response to the attacker, uploading a file whose body is nothing more than the base64 encoding of the response.
-  -FTP reverse shell with sandbox analysis: like the previous reverse shell, but when it starts, it analyzes whether it has been activated in a sandbox. If so, it waits before activating.
+  - FTP reverse shell with sandbox analysis: like the previous reverse shell, but when it starts, it analyzes whether it has been activated in a sandbox. If so, it waits before activating.
