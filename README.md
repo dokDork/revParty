@@ -84,13 +84,8 @@ The variabiles to be defined are the follow:
 It's very simple  
 ```
 cd /opt
-sudo git clone https://github.com/dokDork/SiteSniper.git
-cd SiteSniper 
-chmod 755 siteSniper.sh 
-./siteSniper.sh 
-```
-Optional: You can insert a shortcut to move faster through the tool.
-```
-echo "bind-key C-n run-shell \"tmux kill-session -t #{session_name}\"" >> ~/.tmux.conf
+sudo git clone https://github.com/dokDork/revParty.git
+cd revParty 
+python3 reverseParty.py 
 ```
 
