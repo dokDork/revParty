@@ -31,15 +31,22 @@ The resulting processing consists of several files:
 - **stager.txt**: This is the stager's text format, obfuscated with polymorphic code.
 - **update_k897867.msu**: This is the file used by the Trojan as a front-end file.
 
+The prerequisite for everything to work is a Windows machine reachable from Kali via the winRM protocol (it can obviously also be a virtual machine).
+The Windows machine is used to transform PowerShell scripts into Windows executables.
+Note:
+To enable the winRM protocol on a Windows machine, you must use the PowerShell command:
+ ```
+Enable-PSRemoting
+ ```
   
 ## Example Usage
  ```
 python3 reverseParty.py
  ``` 
-<img src="https://github.com/dokDork/red-team-penetration-test-script/raw/main/images/01.png">
+<img src="https://github.com/dokDork/revParty/raw/main/images/revParty.png">
 
-select one of the penetration test PHASES you are interested in:
-<img src="https://github.com/dokDork/red-team-penetration-test-script/raw/main/images/02.png">
+This is the result of the elaboration process:
+<img src="https://github.com/dokDork/revParty/raw/main/images/revParty.png">
 
 Once selected the PHASE, scripts will be generated using tmux as terminal.
 At this point you can select a specific SUB-PHASE using tmux commands:  

