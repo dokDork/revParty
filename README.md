@@ -2,6 +2,12 @@
 [![License](https://img.shields.io/badge/license-MIT-_red.svg)](https://opensource.org/licenses/MIT)  
 <img src="https://github.com/dokDork/revParty/raw/main/images/revParty.png" width="500">  
 
+## Disclaimer
+This tool is provided for authorized security testing, research, and educational purposes only.
+If you use this tool for any activity involving attacks, exploitation, or security testing against individuals, companies, systems, or networks, you must have explicit prior authorization from the relevant person, organization, or asset owner.
+
+Unauthorized use is strictly prohibited. The author assumes no responsibility for any misuse or damage caused by this tool.
+
 ## Description
 It is an advanced tool capable of creating Backdoors and Trojans for Windows systems, for educational purposes only.
 The tool must obviously be used only with the approval of the owner of the machine on which the Backdoors and Trojans will be run.
