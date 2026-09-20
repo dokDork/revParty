@@ -68,7 +68,7 @@ The variabiles to be defined are the follow:
 |   |  | |
 | `SECONDNAME`      | Name of second stage (PS1) | `second.ps1`|
 | `STAGERNAME`      | Name of stager (PS1) that calls the second stage via the web | `stager.ps1`|
-| `TROJANNAME`      | Name of trojan (PS1) that calls the stager that calls the second stage via the web + if all goes well, calls the FE file | `stager.ps1`|
+| `TROJANNAME`      | Name of trojan (PS1) that calls the stager that calls the second stage via the web + if all goes well, calls the FE file | `trojan.ps1`|
 | `TROJAN_FE`      | Name of windows update to use as the Trojan's FE (other files are fine) | `installer.ps1`|
 | `LAUNCHERNAME`      | Name of launcher (file trusted by Windows) that calls any .exe file to bypass SmartScreen | `launcher.bat`|
 |   |  | |
