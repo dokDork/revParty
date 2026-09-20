@@ -72,7 +72,7 @@ The variabiles to be defined are the follow:
 | `TROJAN_FE`      | Name of windows update to use as the Trojan's FE (other files are fine) | `update.msu`|
 | `LAUNCHERNAME`      | Name of launcher (file trusted by Windows) that calls any .exe file to bypass SmartScreen | `launcher.bat`|
 |   |  | |
-| `EXENAME`      | name of the .exe file to be called by the launcher  | `ps2pdf.exe`|
+| `EXENAME`      | name of the .exe file to be called by the launcher  | `'ps2pdf'.exe`|
 | `ICONNAME`      | Name of icon to inject into executables to make them appear more trustworthy | `sicurezza.ico`|
 | `EXESECONDNAME`      | name to give to the compiled second stage (EXE)  | `01.second.exe`|
 | `EXESTAGER`      | name to give to the compiled stager (EXE)  | `02.stager.exe`|
