@@ -62,7 +62,7 @@ The variabiles to be defined are the follow:
 | Variable | Description                          | Example       |
 |-----------|--------------------------------------|---------------|
 | `LHOST`      | IP Public which the listener is listening | `10.10.10.10`|
-| `LPORT`      | Portort on which the listener is listening | `21`|
+| `LPORT`      | Port on which the listener is listening | `21`|
 | `ATTACKER_URL`      |  Host from which stager (STAGERNAME) download second stage (SECONDNAME) | `https://raw.githubusercontent.com/test/download`|
 | `TROJAN_URL`      | Host from which trojan download stager (STAGERNAME) and front end file (e.g. windows update - TROJAN-FE) | `https://raw.githubusercontent.com/test/download`|
 |   |  | |
