@@ -95,3 +95,5 @@ cd revParty
 python3 reverseParty.py 
 ```
 
+---
+Author: Luigi Capuzzello (dokDork) · [Website](https://capuzzello.altervista.org/) · [LinkedIn](https://www.linkedin.com/in/luigi-capuzzello/)
